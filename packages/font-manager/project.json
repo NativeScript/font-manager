@@ -1,0 +1,66 @@
+{
+  "name": "font-manager",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "packages/font-manager",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "options": {
+        "outputPath": "dist/packages/font-manager",
+        "tsConfig": "packages/font-manager/tsconfig.json",
+        "packageJson": "packages/font-manager/package.json",
+        "main": "packages/font-manager/index.d.ts",
+        "assets": [
+          "packages/font-manager/*.md",
+          "packages/font-manager/index.d.ts",
+          "LICENSE",
+          "packages/font-manager/nativescript.config.ts",
+          {
+            "glob": "**/*",
+            "input": "packages/font-manager/platforms/",
+            "output": "./platforms/"
+          }
+        ],
+        "dependsOn": [
+          {
+            "target": "build.all",
+            "projects": "dependencies"
+          }
+        ]
+      }
+    },
+    "build.all": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": ["node tools/scripts/build-finish.ts font-manager"],
+        "parallel": false
+      },
+      "outputs": ["{workspaceRoot}/dist/packages/font-manager"],
+      "dependsOn": [
+        {
+          "target": "build.all",
+          "projects": "dependencies"
+        },
+        {
+          "target": "build",
+          "projects": "self"
+        }
+      ]
+    },
+    "focus": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": ["nx g @nativescript/plugin-tools:focus-packages font-manager"],
+        "parallel": false
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:eslint",
+      "options": {
+        "lintFilePatterns": ["packages/font-manager/**/*.ts"]
+      }
+    }
+  },
+  "tags": []
+}

@@ -1,0 +1,9 @@
+// Local development: include the native Android library as a composite build.
+// Remove or comment this out when consuming a published AAR from Maven.
+gradle.settingsEvaluated { settings ->
+    settings.includeBuild('../../packages/font-manager/src-native/android') {
+        dependencySubstitution {
+            substitute module('org.nativescript:fontmanager') using project(':fontmanager')
+        }
+    }
+}

@@ -43,6 +43,13 @@ module.exports = {
     // packages
     // build output is always in dist/packages
     '@nativescript': {
+      // @nativescript/font-manager
+      'font-manager': {
+        build: {
+          script: 'nx run font-manager:build.all',
+          description: '@nativescript/font-manager: Build',
+        },
+      },
       'build-all': {
         script: 'nx run-many --target=build.all --all',
         description: 'Build all packages',
@@ -53,6 +60,10 @@ module.exports = {
       description: '_____________  Focus (VS Code supported)  _____________',
     },
     focus: {
+      'font-manager': {
+        script: 'nx run font-manager:focus',
+        description: 'Focus on @nativescript/font-manager',
+      },
       reset: {
         script: 'nx g @nativescript/plugin-tools:focus-packages',
         description: 'Reset Focus',

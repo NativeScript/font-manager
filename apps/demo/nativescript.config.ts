@@ -11,4 +11,13 @@ export default {
   cli: {
     packageManager: 'npm',
   },
+  ios: {
+    SPMPackages: [
+      {
+        name: 'FontManager',
+        libs: ['FontManager'],
+        path: '../../packages/font-manager/src-native/ios/FontManager',
+      },
+    ],
+  },
 } as NativeScriptConfig;

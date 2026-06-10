@@ -44,3 +44,5 @@ packages/**/angular/dist
 
 .nx/cache
 .nx/workspace-data
+/packages/font-manager/src-native/ios/.build
+/packages/font-manager/src-native/ios/FontManager/.build

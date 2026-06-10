@@ -4,12 +4,19 @@
 //   implementation 'com.google.android.gms:play-services-location:+'
 // }
 
+dependencies {
+  // Local dev: resolved via includeBuild in before-plugins.gradle.
+  // When publishing, replace with the Maven coordinate e.g.:
+  //   implementation 'org.nativescript:fontmanager:1.0.0'
+  implementation 'org.nativescript:fontmanager'
+}
+
 android {
-  compileSdkVersion 34
-  buildToolsVersion "34"
+  compileSdkVersion 36
+  buildToolsVersion "36"
   defaultConfig {
     minSdkVersion 24
-    targetSdkVersion 34
+    targetSdkVersion 36
     generatedDensities = []
   }
   aaptOptions {

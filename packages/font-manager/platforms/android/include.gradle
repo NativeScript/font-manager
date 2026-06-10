@@ -1,0 +1,3 @@
+dependencies {
+    implementation 'org.nativescript:fontmanager:1.0.7'
+}

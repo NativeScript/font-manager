@@ -1,0 +1,22 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" class="page">
+    <Page.actionBar>
+        <ActionBar title="font-manager" icon="" class="action-bar" />
+    </Page.actionBar>
+    <StackLayout class="p-20">
+        <Button text="Run Tests" tap="{{ testIt }}" class="btn btn-primary" />
+        <ScrollView class="h-full" marginTop="12">
+            <StackLayout>
+                <Repeater items="{{ results }}">
+                    <Repeater.itemTemplate>
+                        <Label
+                            text="{{ passed ? '✓ ' + name : '✗ ' + name + (error ? ': ' + error : '') }}"
+                            color="{{ passed ? '#2e7d32' : '#c62828' }}"
+                            textWrap="true"
+                            class="p-5"
+                        />
+                    </Repeater.itemTemplate>
+                </Repeater>
+            </StackLayout>
+        </ScrollView>
+    </StackLayout>
+</Page>
