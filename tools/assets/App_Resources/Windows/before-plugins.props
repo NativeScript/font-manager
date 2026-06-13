@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  App_Resources/Windows/before-plugins.props
+
+  Imported by the NativeScript Windows app project BEFORE the plugins' MSBuild files
+  (plugins/Plugins.props), analogous to App_Resources/Android/before-plugins.gradle. Use it to make
+  the native NuGet packages that plugins reference (via their plugin.props <PackageReference>)
+  resolve the way you want - e.g. add a private feed, or pin/override a version.
+
+  This sample is inert (everything is commented out). Uncomment what you need.
+-->
+<Project>
+  <!-- Add NuGet package sources/feeds for plugin PackageReferences to restore from
+       (the MSBuild equivalent of before-plugins.gradle's repositories { ... }). -->
+  <!--
+  <PropertyGroup>
+    <RestoreSources>$(RestoreSources);https://api.nuget.org/v3/index.json</RestoreSources>
+  </PropertyGroup>
+  -->
+
+  <!-- Pin or override the version of a plugin's native package (e.g. @nativescript/font-manager). -->
+  <!--
+  <ItemGroup>
+    <PackageReference Update="NativeScript.FontManager" Version="1.0.2" />
+  </ItemGroup>
+  -->
+</Project>

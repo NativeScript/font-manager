@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  @nativescript/font-manager - Windows plugin targets.
+
+  Copies the active-architecture NativeScript.FontManager C++/WinRT component (its native .dll +
+  .winmd metadata) to the package root ($(OutDir)). The runtime resolves the winmd there via
+  RoGetMetaDataFile and activates the in-proc server (registered as
+  windows.activatableClass.inProcessServer in the app's Package.appxmanifest). An explicit Copy
+  (rather than Content) is used so the files survive EnableMsixTooling Content interception.
+
+  Native DLLs are per-architecture (no universal binary on Windows), so the matching arch folder is
+  chosen from $(Platform). The CLI stages this plugin's platforms/windows/{x64,arm64}/ next to this
+  file, so $(MSBuildThisFileDirectory) resolves the arch subfolders.
+
+  Mirrors @nativescript/core's plugin.targets (NativeScript.Widgets).
+
+  These targets only act in LOCAL-development mode - i.e. when locally-built binaries are present in
+  x64/ or arm64/ next to this file. For npm consumers (no local binaries) plugin.props adds a NuGet
+  PackageReference instead, and that package's own build/native targets perform the copy +
+  registration, so everything here is gated on $(_NSFontManagerHasLocal) to avoid doing it twice.
+-->
+<Project>
+  <PropertyGroup>
+    <_NSFontManagerHasLocal>false</_NSFontManagerHasLocal>
+    <_NSFontManagerHasLocal Condition="Exists('$(MSBuildThisFileDirectory)x64\NativeScript.FontManager.dll') or Exists('$(MSBuildThisFileDirectory)arm64\NativeScript.FontManager.dll')">true</_NSFontManagerHasLocal>
+  </PropertyGroup>
+
+  <Target Name="CopyNativeScriptFontManager" AfterTargets="Build" Condition="'$(_NSFontManagerHasLocal)'=='true'">
+    <PropertyGroup>
+      <_NSFontManagerArchDir Condition="'$(Platform)'=='ARM64' or '$(Platform)'=='arm64'">$(MSBuildThisFileDirectory)arm64\</_NSFontManagerArchDir>
+      <_NSFontManagerArchDir Condition="'$(Platform)'=='x64' or '$(Platform)'=='x86_64'">$(MSBuildThisFileDirectory)x64\</_NSFontManagerArchDir>
+      <!-- Fallback to x64 when $(Platform) is unset/AnyCPU during evaluation. -->
+      <_NSFontManagerArchDir Condition="'$(_NSFontManagerArchDir)'==''">$(MSBuildThisFileDirectory)x64\</_NSFontManagerArchDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_NSFontManagerFiles Include="$(_NSFontManagerArchDir)NativeScript.FontManager.dll" Condition="Exists('$(_NSFontManagerArchDir)NativeScript.FontManager.dll')" />
+      <_NSFontManagerFiles Include="$(_NSFontManagerArchDir)NativeScript.FontManager.winmd" Condition="Exists('$(_NSFontManagerArchDir)NativeScript.FontManager.winmd')" />
+    </ItemGroup>
+    <Message Text="[@nativescript/font-manager] Copying NativeScript.FontManager ($(Platform)) to $(OutDir)" Importance="normal" Condition="'@(_NSFontManagerFiles)' != ''" />
+    <Copy SourceFiles="@(_NSFontManagerFiles)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_NSFontManagerFiles)' != ''" />
+  </Target>
+
+  <!--
+    Registers the NativeScript.FontManager C++/WinRT runtimeclasses as an in-proc activatable-class
+    server in the app's Package.appxmanifest, so the OS RoGetActivationFactory can create them when
+    JS calls e.g. NativeScript.FontManager.FontFace.FromFamily(...). Owned here in the plugin (which
+    ships the DLL) so apps never hand-maintain the list in their App_Resources manifest. The
+    injection is idempotent (skips classes already present).
+  -->
+  <ItemGroup>
+    <!-- Keep in sync with the activatable runtimeclasses exported by NativeScript.FontManager.dll. -->
+    <NSFontManagerActivatableClass Include="NativeScript.FontManager.FontFace" />
+    <NSFontManagerActivatableClass Include="NativeScript.FontManager.FontFaceSet" />
+    <NSFontManagerActivatableClass Include="NativeScript.FontManager.FontDescriptors" />
+  </ItemGroup>
+
+  <Target Name="NSRegisterFontManagerActivatableClasses"
+          AfterTargets="ApplyManifestOverrides;MergeAppResourcesManifest"
+          BeforeTargets="Build"
+          Condition="'$(_NSFontManagerHasLocal)'=='true' and Exists('$(MSBuildProjectDirectory)\Package.appxmanifest')">
+    <Message Text="[@nativescript/font-manager] Registering NativeScript.FontManager activatable classes in Package.appxmanifest" Importance="normal" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$ErrorActionPreference='Stop'; $p='$(MSBuildProjectDirectory)\Package.appxmanifest'; if(-not (Test-Path $p)){exit 0}; $dll='NativeScript.FontManager.dll'; $ids='@(NSFontManagerActivatableClass)'.Split(';'); [xml]$d=Get-Content -LiteralPath $p; $ns='http://schemas.microsoft.com/appx/manifest/foundation/windows10'; $m=New-Object System.Xml.XmlNamespaceManager($d.NameTable); $m.AddNamespace('a',$ns); $pkg=$d.DocumentElement; $ext=$pkg.SelectSingleNode('a:Extensions',$m); if(-not $ext){$ext=$d.CreateElement('Extensions',$ns);[void]$pkg.AppendChild($ext)}; $srv=$ext.SelectSingleNode('a:Extension[@Category=''windows.activatableClass.inProcessServer'']/a:InProcessServer[a:Path=''' + $dll + ''']',$m); if(-not $srv){$e=$d.CreateElement('Extension',$ns);$e.SetAttribute('Category','windows.activatableClass.inProcessServer');$srv=$d.CreateElement('InProcessServer',$ns);$pa=$d.CreateElement('Path',$ns);$pa.InnerText=$dll;[void]$srv.AppendChild($pa);[void]$e.AppendChild($srv);[void]$ext.AppendChild($e)}; $have=@($srv.SelectNodes('a:ActivatableClass',$m)|ForEach-Object{$_.GetAttribute('ActivatableClassId')}); $chg=$false; foreach($id in $ids){if($id -and ($have -notcontains $id)){$c=$d.CreateElement('ActivatableClass',$ns);$c.SetAttribute('ActivatableClassId',$id);$c.SetAttribute('ThreadingModel','both');[void]$srv.AppendChild($c);$chg=$true}}; if($chg){$d.Save($p)}&quot;" />
+  </Target>
+</Project>

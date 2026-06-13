@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  @nativescript/font-manager - Windows plugin props.
+
+  Remote distribution (npm): when the plugin carries NO locally-built binaries (the published npm
+  package ships only this file + plugin.targets), pull the C++/WinRT component from NuGet. The
+  NativeScript.FontManager package's own build/native targets then add the winmd projection, copy
+  the active-arch dll, and register the activatable classes. This mirrors Android's include.gradle
+  Maven coordinate and iOS's remote SPM package.
+
+  Local development: src-native/windows/publish.ps1 places the built dll/winmd in x64/ and arm64/
+  next to this file. Their presence suppresses the PackageReference below, so the local binaries
+  (copied + registered by plugin.targets) are used instead - the "direct source/assets" path.
+
+  Keep the Version in sync with the published NuGet package (and pack.ps1, which derives it from
+  package.json).
+-->
+<Project>
+  <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)x64\NativeScript.FontManager.dll') and !Exists('$(MSBuildThisFileDirectory)arm64\NativeScript.FontManager.dll')">
+    <PackageReference Include="NativeScript.FontManager" Version="1.0.2" />
+  </ItemGroup>
+</Project>

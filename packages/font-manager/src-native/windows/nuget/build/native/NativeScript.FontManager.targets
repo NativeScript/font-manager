@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NativeScript.FontManager NuGet - MSBuild integration for C++/WinRT consumers.
+
+  Pulled in automatically by <PackageReference Include="NativeScript.FontManager" />. It:
+    1. Adds the .winmd as a reference so cppwinrt generates the projection headers (the consumer
+       can #include <winrt/NativeScript.FontManager.h> and call FontFace / FontFaceSet, etc.).
+    2. Copies the active-architecture implementation .dll (+ .winmd) to the build output, so the
+       OS can load the in-proc server at runtime.
+    3. Registers the FontManager runtimeclasses as activatable in-proc classes in the consuming
+       app's Package.appxmanifest, so RoGetActivationFactory can create them.
+
+  Layout inside the package:
+    build/native/NativeScript.FontManager.targets        (this file)
+    build/native/NativeScript.FontManager.winmd          (arch-neutral metadata)
+    runtimes/win10-{x64,arm64}/native/NativeScript.FontManager.dll
+-->
+<Project>
+  <PropertyGroup>
+    <_FMRoot>$(MSBuildThisFileDirectory)..\..\</_FMRoot>
+    <_FMRuntime Condition="'$(Platform)'=='ARM64' or '$(Platform)'=='arm64'">win10-arm64</_FMRuntime>
+    <_FMRuntime Condition="'$(Platform)'=='x64' or '$(Platform)'=='x86_64'">win10-x64</_FMRuntime>
+    <!-- Fallback to x64 when $(Platform) is unset/AnyCPU during evaluation. -->
+    <_FMRuntime Condition="'$(_FMRuntime)'==''">win10-x64</_FMRuntime>
+    <_FMDllPath>$(_FMRoot)runtimes\$(_FMRuntime)\native\NativeScript.FontManager.dll</_FMDllPath>
+    <_FMWinmdPath>$(MSBuildThisFileDirectory)NativeScript.FontManager.winmd</_FMWinmdPath>
+  </PropertyGroup>
+
+  <!-- (1) Compile-time projection: cppwinrt consumes winmds discovered via @(Reference). -->
+  <ItemGroup>
+    <Reference Include="$(_FMWinmdPath)">
+      <IsWinMDFile>true</IsWinMDFile>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- (2) Runtime: copy the matching-arch dll (+ metadata) next to the consumer's output. -->
+  <Target Name="CopyNativeScriptFontManager" AfterTargets="Build">
+    <ItemGroup>
+      <_FMFiles Include="$(_FMDllPath)" Condition="Exists('$(_FMDllPath)')" />
+      <_FMFiles Include="$(_FMWinmdPath)" Condition="Exists('$(_FMWinmdPath)')" />
+    </ItemGroup>
+    <Message Text="[NativeScript.FontManager] Copying component ($(Platform) -> $(_FMRuntime)) to $(OutDir)" Importance="normal" Condition="'@(_FMFiles)' != ''" />
+    <Copy SourceFiles="@(_FMFiles)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_FMFiles)' != ''" />
+  </Target>
+
+  <!-- (3) Register the activatable classes in the consuming app's Package.appxmanifest (idempotent). -->
+  <ItemGroup>
+    <NSFontManagerActivatableClass Include="NativeScript.FontManager.FontFace" />
+    <NSFontManagerActivatableClass Include="NativeScript.FontManager.FontFaceSet" />
+    <NSFontManagerActivatableClass Include="NativeScript.FontManager.FontDescriptors" />
+  </ItemGroup>
+
+  <Target Name="NSRegisterFontManagerActivatableClasses"
+          AfterTargets="ApplyManifestOverrides;MergeAppResourcesManifest"
+          BeforeTargets="Build"
+          Condition="Exists('$(MSBuildProjectDirectory)\Package.appxmanifest')">
+    <Message Text="[NativeScript.FontManager] Registering activatable classes in Package.appxmanifest" Importance="normal" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$ErrorActionPreference='Stop'; $p='$(MSBuildProjectDirectory)\Package.appxmanifest'; if(-not (Test-Path $p)){exit 0}; $dll='NativeScript.FontManager.dll'; $ids='@(NSFontManagerActivatableClass)'.Split(';'); [xml]$d=Get-Content -LiteralPath $p; $ns='http://schemas.microsoft.com/appx/manifest/foundation/windows10'; $m=New-Object System.Xml.XmlNamespaceManager($d.NameTable); $m.AddNamespace('a',$ns); $pkg=$d.DocumentElement; $ext=$pkg.SelectSingleNode('a:Extensions',$m); if(-not $ext){$ext=$d.CreateElement('Extensions',$ns);[void]$pkg.AppendChild($ext)}; $srv=$ext.SelectSingleNode('a:Extension[@Category=''windows.activatableClass.inProcessServer'']/a:InProcessServer[a:Path=''' + $dll + ''']',$m); if(-not $srv){$e=$d.CreateElement('Extension',$ns);$e.SetAttribute('Category','windows.activatableClass.inProcessServer');$srv=$d.CreateElement('InProcessServer',$ns);$pa=$d.CreateElement('Path',$ns);$pa.InnerText=$dll;[void]$srv.AppendChild($pa);[void]$e.AppendChild($srv);[void]$ext.AppendChild($e)}; $have=@($srv.SelectNodes('a:ActivatableClass',$m)|ForEach-Object{$_.GetAttribute('ActivatableClassId')}); $chg=$false; foreach($id in $ids){if($id -and ($have -notcontains $id)){$c=$d.CreateElement('ActivatableClass',$ns);$c.SetAttribute('ActivatableClassId',$id);$c.SetAttribute('ThreadingModel','both');[void]$srv.AppendChild($c);$chg=$true}}; if($chg){$d.Save($p)}&quot;" />
+  </Target>
+</Project>

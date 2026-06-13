@@ -1,0 +1,61 @@
+import "FontEnums.idl";
+import "FontDescriptors.idl";
+
+namespace NativeScript.FontManager
+{
+    // Web-FontFace-compatible font face. Ports the iOS NSCFontFace. Created via the static From*
+    // factories (WinRT-friendly equivalents of the ObjC init overloads); scalar descriptors are
+    // read through get-only properties and mutated through the Set*/UpdateDescriptor helpers, which
+    // mirror the JS FontFace property setters.
+    runtimeclass FontFace
+    {
+        static FontFace FromFamily(String family);
+        static FontFace FromFamilySource(String family, String source);
+        static FontFace FromFamilyData(String family, Windows.Storage.Streams.IBuffer data);
+        static FontFace FromDescriptor(FontDescriptors descriptor);
+        static FontFace FromDescriptorSource(FontDescriptors descriptor, String source);
+        static FontFace FromDescriptorData(FontDescriptors descriptor, Windows.Storage.Streams.IBuffer data);
+
+        String Family{ get; };
+        FontFaceStatus Status{ get; };
+        FontDescriptors Descriptors{ get; };
+
+        // A XAML-usable URI for the loaded font ("ms-appdata:///local/ns_fonts/<file>#<Family>" for
+        // downloaded/in-memory fonts, or "<source>#<Family>" for local sources). Empty until loaded.
+        String FontUri{ get; };
+
+        FontDisplay Display{ get; };
+        FontWeight Weight{ get; };
+        String Style{ get; };
+        String Stretch{ get; };
+        String UnicodeRange{ get; };
+        String FeatureSettings{ get; };
+        String VariationSettings{ get; };
+        String AscentOverride{ get; };
+        String DescentOverride{ get; };
+        String LineGapOverride{ get; };
+        String Kerning{ get; };
+        String VariantLigatures{ get; };
+
+        void SetFontWeight(String value);
+        void SetFontStyle(String value, String angle);
+        void SetFontDisplay(String value);
+        void SetFontStretch(String value);
+        void SetFontUnicodeRange(String value);
+        void SetFontFeatureSettings(String value);
+        void SetFontVariationSettings(String value);
+        void SetFontAscentOverride(String value);
+        void SetFontDescentOverride(String value);
+        void SetFontLineGapOverride(String value);
+        void SetFontKerning(String value);
+        void SetFontVariantLigatures(String value);
+        void UpdateDescriptor(String css);
+
+        // Resolves + validates the font. Resolves to an empty string on success, or an error message.
+        Windows.Foundation.IAsyncOperation<String> LoadAsync();
+
+        // Downloads a remote stylesheet, parses its @font-face rules into FontFaces (added to the
+        // shared FontFaceSet) and optionally loads them. Throws on a hard fetch/parse failure.
+        static Windows.Foundation.IAsyncOperation<Windows.Foundation.Collections.IVectorView<FontFace> > ImportFromRemoteAsync(String url, Boolean load);
+    }
+}

@@ -1,0 +1,42 @@
+namespace NativeScript.FontManager
+{
+    // CSS font-display. Same ordinal values as the iOS NSCFontDisplay enum.
+    enum FontDisplay
+    {
+        Auto = 0,
+        Block = 1,
+        Fallback = 2,
+        Optional = 3,
+        Swap = 4
+    };
+
+    // CSS numeric font-weight. Values are the canonical 100..900 weights.
+    enum FontWeight
+    {
+        Thin = 100,
+        ExtraLight = 200,
+        Light = 300,
+        Normal = 400,
+        Medium = 500,
+        SemiBold = 600,
+        Bold = 700,
+        ExtraBold = 800,
+        Black = 900
+    };
+
+    // Web FontFace.status lifecycle.
+    enum FontFaceStatus
+    {
+        Unloaded = 0,
+        Loading = 1,
+        Loaded = 2,
+        Error = 3
+    };
+
+    // Web FontFaceSet aggregate status.
+    enum FontFaceSetStatus
+    {
+        Loading = 0,
+        Loaded = 1
+    };
+}

@@ -1,0 +1,6 @@
+# Built locally by src-native/windows/publish.ps1 for local development, and shipped to npm
+# consumers via the NativeScript.FontManager NuGet package (see plugin.props). The binaries are
+# never committed and are excluded from the npm package (see project.json assets) so npm pulls
+# them from NuGet - mirroring Android (no committed .aar) and iOS (no committed framework).
+x64/
+arm64/

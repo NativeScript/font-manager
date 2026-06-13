@@ -1,0 +1,35 @@
+import "FontEnums.idl";
+
+namespace NativeScript.FontManager
+{
+    // CSS @font-face descriptor bag. Ports the iOS NSCFontDescriptors. Constructed with the family;
+    // every other descriptor mutates via its property or the Set*/Update string helpers.
+    runtimeclass FontDescriptors
+    {
+        FontDescriptors(String family);
+
+        FontWeight Weight;
+        String Family{ get; };
+        String Style;
+        String ObliqueAngle;
+        String Variant;
+        String AscentOverride;
+        String DescentOverride;
+        FontDisplay Display;
+        String Stretch;
+        String UnicodeRange;
+        String FeatureSettings;
+        String LineGapOverride;
+        String VariationSettings;
+        String Kerning;
+        String VariantLigatures;
+
+        // Parses a `@font-face { ... }` string and applies any descriptors found.
+        void Update(String value);
+
+        // Parse a single descriptor value from its CSS string form.
+        void SetFontWeightFromString(String value);
+        void SetFontStyleFromString(String value);
+        void SetFontDisplayFromString(String value);
+    }
+}

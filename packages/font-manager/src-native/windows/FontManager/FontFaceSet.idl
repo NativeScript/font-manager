@@ -1,0 +1,42 @@
+import "FontEnums.idl";
+import "FontFace.idl";
+
+namespace NativeScript.FontManager
+{
+    // Payload for FontFaceSet notifications. `Face`/`Error` are null/empty where not relevant to the
+    // event (e.g. StatusChanged carries only Status).
+    runtimeclass FontFaceSetEventArgs
+    {
+        FontFaceSetStatus Status{ get; };
+        FontFace Face{ get; };
+        String Error{ get; };
+    }
+
+    // Process-wide Web-FontFaceSet-compatible registry. Ports the iOS NSCFontFaceSet singleton.
+    runtimeclass FontFaceSet
+    {
+        static FontFaceSet Instance();
+
+        UInt32 Size{ get; };
+
+        void Add(FontFace font);
+        void Delete(FontFace font);
+        void Clear();
+        Boolean Has(FontFace font);
+
+        // Resolves a CSS `font:` shorthand against the registered faces (weight/style scoring).
+        Boolean Check(String font, String text);
+
+        // Resolves + loads the best matching face. Resolves to the matched faces (empty when no
+        // match); rejects when the shorthand can't be parsed or the load fails.
+        Windows.Foundation.IAsyncOperation<Windows.Foundation.Collections.IVectorView<FontFace> > LoadAsync(String font, String text);
+
+        // Snapshot of the registered faces (the TS layer builds JS iterators over this).
+        Windows.Foundation.Collections.IVectorView<FontFace> GetArray();
+
+        event Windows.Foundation.TypedEventHandler<FontFaceSet, FontFaceSetEventArgs> StatusChanged;
+        event Windows.Foundation.TypedEventHandler<FontFaceSet, FontFaceSetEventArgs> Loading;
+        event Windows.Foundation.TypedEventHandler<FontFaceSet, FontFaceSetEventArgs> LoadingDone;
+        event Windows.Foundation.TypedEventHandler<FontFaceSet, FontFaceSetEventArgs> LoadingError;
+    }
+}

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>NativeScript.FontManager</id>
+    <version>1.0.0</version>
+    <title>NativeScript FontManager (C++/WinRT)</title>
+    <authors>NativeScript</authors>
+    <owners>NativeScript</owners>
+    <license type="expression">Apache-2.0</license>
+    <readme>readme.md</readme>
+    <projectUrl>https://github.com/NativeScript/font-manager</projectUrl>
+    <repository type="git" url="https://github.com/NativeScript/font-manager.git" />
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>
+      Native C++/WinRT Windows Runtime Component backing @nativescript/font-manager: a Web Font
+      Loading API (FontFace / FontFaceSet) implementation built on DirectWrite. Consume from another
+      C++/WinRT project (e.g. @nativescript/canvas) via PackageReference to call FontManager types
+      and to register its activatable classes in the app's Package.appxmanifest.
+    </description>
+    <summary>FontFace / FontFaceSet C++/WinRT component for NativeScript on Windows.</summary>
+    <tags>NativeScript Windows WinRT C++ DirectWrite font FontFace native</tags>
+  </metadata>
+  <files>
+    <file src="readme.md" target="readme.md" />
+    <!-- MSBuild integration: winmd projection + per-arch dll copy + manifest registration. -->
+    <file src="build\native\NativeScript.FontManager.targets" target="build\native\NativeScript.FontManager.targets" />
+    <!-- Architecture-neutral metadata used for the C++/WinRT projection at compile time. -->
+    <file src="..\..\..\platforms\windows\x64\NativeScript.FontManager.winmd" target="build\native\NativeScript.FontManager.winmd" />
+    <!-- Per-architecture implementation DLLs (no universal binary on Windows). -->
+    <file src="..\..\..\platforms\windows\x64\NativeScript.FontManager.dll" target="runtimes\win10-x64\native\NativeScript.FontManager.dll" />
+    <file src="..\..\..\platforms\windows\arm64\NativeScript.FontManager.dll" target="runtimes\win10-arm64\native\NativeScript.FontManager.dll" />
+  </files>
+</package>
