@@ -1,4 +1,5 @@
 #import "NSCFontDescriptors.h"
+#import "NSCFontStyle.h"
 #import "NSCFontRegex.h"
 
 @implementation NSCFontDescriptors
@@ -9,8 +10,7 @@
     if (self) {
         _weight = NSCFontWeightNormal;
         _family = [family copy];
-        _style = NSCFontStyleNormal;
-        _obliqueAngle = nil;
+        _style = [NSCFontStyle normal];
         _variant = @"normal";
         _ascentOverride = @"normal";
         _descentOverride = @"normal";
@@ -164,20 +164,7 @@
 }
 
 - (void)setFontStyleFromString:(NSString *)value {
-
-    NSString *trimmed = [[value lowercaseString]
-                         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-
-    if ([trimmed hasPrefix:@"oblique"]) {
-        _style = NSCFontStyleOblique;
-        NSString *rest = [[trimmed substringFromIndex:@"oblique".length]
-                          stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-        _obliqueAngle = rest.length > 0 ? rest : @"0deg";
-        return;
-    }
-
-    _style = NSCFontStyleFromString(trimmed);
-    _obliqueAngle = nil;
+    _style = [NSCFontStyle fromString:value];
 }
 
 - (void)setFontDisplayFromString:(NSString *)value {

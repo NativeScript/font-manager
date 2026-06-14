@@ -1,20 +1,5 @@
 #import "NSCFontTypes.h"
 
-NSCFontStyle NSCFontStyleFromString(NSString *value) {
-    NSString *trimmed = [value.lowercaseString
-                         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-    if ([trimmed isEqualToString:@"italic"])          return NSCFontStyleItalic;
-    if ([trimmed hasPrefix:@"oblique"])               return NSCFontStyleOblique;
-    return NSCFontStyleNormal;
-}
-
-NSString *NSCFontStyleToString(NSCFontStyle style) {
-    switch (style) {
-        case NSCFontStyleItalic:  return @"italic";
-        case NSCFontStyleOblique: return @"oblique";
-        case NSCFontStyleNormal:  return @"normal";
-    }
-}
 
 #if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
 UIFontWeight NSCUIFontWeight(NSCFontWeight weight) {

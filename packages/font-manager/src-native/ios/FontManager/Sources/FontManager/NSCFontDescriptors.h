@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import "NSCFontTypes.h"
+#import "NSCFontStyle.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -7,8 +8,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic) NSCFontWeight weight;
 @property (nonatomic, copy) NSString *family;
-@property (nonatomic) NSCFontStyle style;
-@property (nonatomic, copy, nullable) NSString *obliqueAngle;
+@property (nonatomic, strong) NSCFontStyle *style;
 @property (nonatomic, copy) NSString *variant;
 @property (nonatomic, copy) NSString *ascentOverride;
 @property (nonatomic, copy) NSString *descentOverride;

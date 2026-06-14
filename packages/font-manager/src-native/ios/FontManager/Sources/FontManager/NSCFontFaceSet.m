@@ -237,7 +237,7 @@
         for (NSCFontFace *face in candidates) {
             NSInteger score =
                 labs(face.fontDescriptors.weight - parsed.weight) +
-                (face.fontDescriptors.style == parsed.style ? 0 : 1000);
+                (face.fontDescriptors.style.type == parsed.style.type ? 0 : 1000);
             if (score < bestScore) { bestScore = score; best = face; }
         }
         if (best) return @[best];

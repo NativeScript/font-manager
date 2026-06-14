@@ -1,4 +1,5 @@
 #import "NSCFontParser.h"
+#import "NSCFontStyle.h"
 
 @implementation NSCFontParseResult
 @end
@@ -21,7 +22,7 @@
 
     NSArray<NSString *> *tokens = [self tokenize:input];
 
-    NSCFontStyle style = NSCFontStyleNormal;
+    NSCFontStyle *style = [NSCFontStyle normal];
     NSInteger weight = 400;
     NSInteger size = -1;
     NSNumber *lineHeight = nil;
@@ -40,11 +41,15 @@
 
         if ([token isEqualToString:@"italic"]) {
 
-            style = NSCFontStyleItalic;
+            style = [NSCFontStyle italic];
 
         } else if ([token hasPrefix:@"oblique"]) {
 
-            style = NSCFontStyleOblique;
+            NSString *rest = [[token substringFromIndex:@"oblique".length]
+                              stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+            NSString *digits = [rest hasSuffix:@"deg"] ? [rest substringToIndex:rest.length - 3] : rest;
+            NSInteger angle = digits.length > 0 ? digits.integerValue : 0;
+            style = [NSCFontStyle obliqueWithAngle:angle];
 
         } else if ([token isEqualToString:@"bold"]) {
 

@@ -27,6 +27,7 @@ typedef void (^NSCFontResolverCompletion)(
 
 - (nullable NSData *)loadFontDataFromURL:(NSString *)src error:(NSError **)error;
 - (nullable CGFontRef)registerFontFromData:(NSData *)data error:(NSError **)error;
+- (NSString *)resolveGenericFamily:(NSString *)family;
 - (void)importFromRemoteWithURL:(NSString *)url
                           load:(BOOL)load
                      completion:(void (^)(NSArray<NSCFontFace *> * _Nullable fonts,

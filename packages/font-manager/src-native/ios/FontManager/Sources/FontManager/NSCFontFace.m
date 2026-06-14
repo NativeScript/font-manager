@@ -2,11 +2,17 @@
 #import "NSCFontDescriptors.h"
 #import "NSCFontFaceSet.h"
 #import "NSCFontResolver.h"
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+#import <UIKit/UIKit.h>
+#endif
 
 @interface NSCFontFace ()
 @property (nonatomic, copy, nullable) NSString *localOrRemoteSource;
 @property (nonatomic, copy, nullable) NSString *fontPath;
 @property (nonatomic, assign) BOOL reloadPending;
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+@property (nonatomic, strong, nullable, readwrite) UIFont *uiFont;
+#endif
 @end
 
 @implementation NSCFontFace
@@ -84,8 +90,8 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
     [self _scheduleReloadIfNeeded];
 }
 
-- (NSCFontStyle)style { return self.fontDescriptors.style; }
-- (void)setStyle:(NSCFontStyle)style {
+- (NSCFontStyle *)style { return self.fontDescriptors.style; }
+- (void)setStyle:(NSCFontStyle *)style {
     self.fontDescriptors.style = style;
     [self _scheduleReloadIfNeeded];
 }
@@ -248,6 +254,48 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
     return nil;
 }
 
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+
+// Apply italic/oblique trait to a base UIFont via descriptor.
+- (UIFont *)_applyStyleTraitsToFont:(UIFont *)base size:(CGFloat)size {
+    NSCFontStyleType styleType = self.fontDescriptors.style.type;
+    if (styleType == NSCFontStyleTypeItalic || styleType == NSCFontStyleTypeOblique) {
+        UIFontDescriptor *desc = [base.fontDescriptor
+            fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitItalic];
+        if (desc) {
+            UIFont *italic = [UIFont fontWithDescriptor:desc size:size];
+            if (italic) return italic;
+        }
+    }
+    return base;
+}
+
+// For system/generic families — re-create UIFont from the resolved family name.
+// Falls back to a weight-matched system font so we never return nil.
+- (UIFont *)_uiFontFromFamily:(NSString *)family size:(CGFloat)size {
+    UIFont *base = [UIFont fontWithName:family size:size];
+    if (!base) {
+        base = [UIFont systemFontOfSize:size weight:NSCUIFontWeight(self.fontDescriptors.weight)];
+    }
+    return [self _applyStyleTraitsToFont:base size:size];
+}
+
+// For custom registered fonts — bridge through the PostScript name.
+- (nullable UIFont *)_uiFontFromCGFont:(CGFontRef)cgFont size:(CGFloat)size {
+    CFStringRef psRef = CGFontCopyPostScriptName(cgFont);
+    if (!psRef) return nil;
+    NSString *psName = (__bridge_transfer NSString *)psRef;
+    UIFont *base = [UIFont fontWithName:psName size:size];
+    if (!base) return nil;
+    return [self _applyStyleTraitsToFont:base size:size];
+}
+
+- (nullable UIFont *)uiFontWithSize:(CGFloat)size {
+    return [self.uiFont fontWithSize:size];
+}
+
+#endif
+
 - (void)_loadInternalWithCompletion:(void (^)(NSString * _Nullable))callback {
     NSString *family = self.fontDescriptors.family;
     NSString *src = self.localOrRemoteSource;
@@ -257,6 +305,9 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
         CGFontRef font = [[NSCFontResolver shared] registerFontFromData:self.fontData error:&error];
         if (font) {
             self.font = font;
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+            self.uiFont = [self _uiFontFromCGFont:font size:UIFont.labelFontSize];
+#endif
             self.status = NSCFontFaceStatusLoaded;
             callback(nil);
         } else {
@@ -285,6 +336,16 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
                            self->_fontPath = src;
                        }
 
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+                       // Custom source font: bridge via PostScript name.
+                       // System/generic font (no src): re-create from resolved family name.
+                       if (src.length > 0) {
+                           self.uiFont = [self _uiFontFromCGFont:font size:UIFont.labelFontSize];
+                       } else {
+                           NSString *resolvedFamily = [[NSCFontResolver shared] resolveGenericFamily:family];
+                           self.uiFont = [self _uiFontFromFamily:resolvedFamily size:UIFont.labelFontSize];
+                       }
+#endif
                        self.status = NSCFontFaceStatusLoaded;
                        callback(nil);
                    }];
