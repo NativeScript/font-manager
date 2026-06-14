@@ -15,6 +15,7 @@
 @property (nonatomic, strong) NSMutableArray<void (^)(NSCFontFace *)> *loadingListeners;
 @property (nonatomic, strong) NSMutableArray<void (^)(NSCFontFace *)> *loadingDoneListeners;
 @property (nonatomic, strong) NSMutableArray<void (^)(NSCFontFace *, NSString *)> *loadingErrorListeners;
+@property (nonatomic, strong) NSMapTable<NSCFontFace *, id> *reloadListenersByFace;
 
 @end
 
@@ -42,6 +43,7 @@
         _loadingListeners = [NSMutableArray array];
         _loadingDoneListeners = [NSMutableArray array];
         _loadingErrorListeners = [NSMutableArray array];
+        _reloadListenersByFace = [NSMapTable strongToStrongObjectsMapTable];
     }
     return self;
 }
@@ -57,28 +59,28 @@
 }
 
 - (void)addOnStatusListener:(void (^)(NSCFontFaceSetStatus))listener {
-    @synchronized (self) { [_statusListeners addObject:[listener copy]]; }
+    @synchronized (self) { [_statusListeners addObject:listener]; }
 }
 - (void)removeOnStatusListener:(void (^)(NSCFontFaceSetStatus))listener {
     @synchronized (self) { [_statusListeners removeObject:listener]; }
 }
 
 - (void)addOnLoadingListener:(void (^)(NSCFontFace *))listener {
-    @synchronized (self) { [_loadingListeners addObject:[listener copy]]; }
+    @synchronized (self) { [_loadingListeners addObject:listener]; }
 }
 - (void)removeOnLoadingListener:(void (^)(NSCFontFace *))listener {
     @synchronized (self) { [_loadingListeners removeObject:listener]; }
 }
 
 - (void)addOnLoadingDoneListener:(void (^)(NSCFontFace *))listener {
-    @synchronized (self) { [_loadingDoneListeners addObject:[listener copy]]; }
+    @synchronized (self) { [_loadingDoneListeners addObject:listener]; }
 }
 - (void)removeOnLoadingDoneListener:(void (^)(NSCFontFace *))listener {
     @synchronized (self) { [_loadingDoneListeners removeObject:listener]; }
 }
 
 - (void)addOnLoadingErrorListener:(void (^)(NSCFontFace *, NSString *))listener {
-    @synchronized (self) { [_loadingErrorListeners addObject:[listener copy]]; }
+    @synchronized (self) { [_loadingErrorListeners addObject:listener]; }
 }
 - (void)removeOnLoadingErrorListener:(void (^)(NSCFontFace *, NSString *))listener {
     @synchronized (self) { [_loadingErrorListeners removeObject:listener]; }
@@ -134,30 +136,37 @@
 
 - (void)add:(NSCFontFace *)font {
     @synchronized (self) {
-        [_fontCache addObject:font];
         NSString *key = font.family.lowercaseString;
+        if (_fontsByFamily[key].count > 0) {
+            return;
+        }
+      
+        [_fontCache addObject:font];
         if (!_fontsByFamily[key]) _fontsByFamily[key] = [NSMutableArray array];
         [_fontsByFamily[key] addObject:font];
+      
+      
+        __weak typeof(self) weakSelf = self;
+        void (^reloadListener)(NSCFontFace *, NSString *) = ^(NSCFontFace *reloadedFace, NSString *error) {
+            __strong __typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            if (error) {
+                [strongSelf _endLoadError:reloadedFace error:error];
+            } else {
+                [strongSelf _endLoadSuccess:reloadedFace];
+                if (reloadedFace.fontData) {
+                    [strongSelf _emitEvent:NSCFontFaceSetEventAdd
+                                      face:reloadedFace
+                                    family:reloadedFace.family.lowercaseString];
+                }
+            }
+        };
+        [_reloadListenersByFace setObject:reloadListener forKey:font];
+        [font addReloadListener:reloadListener];
+
     }
 
-    // Wire up reload notifications so the set fires its events when a
-    // descriptor change triggers a reload on a face already in the set.
-    __weak typeof(self) weakSelf = self;
-    font.onReload = ^(NSCFontFace *reloadedFace, NSString *error) {
-        typeof(self) strongSelf = weakSelf;
-        if (!strongSelf) return;
-        if (error) {
-            [strongSelf _endLoadError:reloadedFace error:error];
-        } else {
-            [strongSelf _endLoadSuccess:reloadedFace];
-            if (reloadedFace.fontData) {
-                [strongSelf _emitEvent:NSCFontFaceSetEventAdd
-                                  face:reloadedFace
-                                family:reloadedFace.family.lowercaseString];
-            }
-        }
-    };
-
+  
     if (font.fontData) {
         [self _emitEvent:NSCFontFaceSetEventAdd face:font family:font.family.lowercaseString];
     }
@@ -170,7 +179,11 @@
         [_fontsByFamily[key] removeObject:font];
         if (_fontsByFamily[key].count == 0) [_fontsByFamily removeObjectForKey:key];
     }
-    font.onReload = nil;
+    void (^reloadListener)(NSCFontFace *, NSString *) = [_reloadListenersByFace objectForKey:font];
+    if (reloadListener) {
+        [font removeOnReloadListener:reloadListener];
+        [_reloadListenersByFace removeObjectForKey:font];
+    }
     [self _emitEvent:NSCFontFaceSetEventRemove face:font family:font.family.lowercaseString];
 }
 
@@ -182,8 +195,12 @@
         [_fontsByFamily removeAllObjects];
     }
     for (NSCFontFace *face in snapshot) {
-        face.onReload = nil;
+        void (^reloadListener)(NSCFontFace *, NSString *) = [_reloadListenersByFace objectForKey:face];
+        if (reloadListener) {
+            [face removeOnReloadListener:reloadListener];
+        }
     }
+    [_reloadListenersByFace removeAllObjects];
     [self _emitEvent:NSCFontFaceSetEventClear face:nil family:nil];
 }
 

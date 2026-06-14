@@ -174,17 +174,17 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
 
 
 - (void)addReloadListener:(void (^)(NSCFontFace *, NSString *))listener {
-    @synchronized (self) { [_onReloadListeners addObject:[listener copy]]; }
+    @synchronized (self) { [_onReloadListeners addObject:listener]; }
 }
 - (void)removeOnReloadListener:(void (^)(NSCFontFace *, NSString *))listener {
     @synchronized (self) { [_onReloadListeners removeObject:listener]; }
 }
 
-/**
- * Schedules an async reload when a rendering-relevant descriptor changes on a
- * previously-loaded face. Coalesces rapid successive changes — only one reload
- * fires regardless of how many properties are set synchronously.
- */
+- (void)removeAllReloadListeners {
+    @synchronized (self) { [_onReloadListeners removeAllObjects]; }
+}
+
+
 - (void)_scheduleReloadIfNeeded {
     if (self.status != NSCFontFaceStatusLoaded) return;
 

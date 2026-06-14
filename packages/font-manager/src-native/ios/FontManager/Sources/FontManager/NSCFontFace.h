@@ -35,6 +35,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)removeOnReloadListener:(void (^)(NSCFontFace *, NSString *))listener;
 
+- (void)removeAllReloadListeners;
+
 @property (nonatomic, strong) NSMutableArray<void (^)(NSCFontFace *face, NSString * _Nullable error)> *onReloadListeners;
 
 - (instancetype)initWithFamily:(NSString *)family;
