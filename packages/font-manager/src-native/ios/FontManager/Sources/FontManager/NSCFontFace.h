@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
 #import "NSCFontTypes.h"
 #import "NSCFontDescriptors.h"
 
@@ -16,7 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 // Descriptor pass-throughs (mirrors Web FontFace API)
 @property (nonatomic) NSCFontDisplay display;
 @property (nonatomic) NSCFontWeight weight;
-@property (nonatomic, copy) NSString *style;
+@property (nonatomic) NSCFontStyle style;
 @property (nonatomic, copy) NSString *variant;
 @property (nonatomic, copy) NSString *stretch;
 @property (nonatomic, copy) NSString *unicodeRange;

@@ -7,7 +7,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic) NSCFontWeight weight;
 @property (nonatomic, copy) NSString *family;
-@property (nonatomic, copy) NSString *style;
+@property (nonatomic) NSCFontStyle style;
 @property (nonatomic, copy, nullable) NSString *obliqueAngle;
 @property (nonatomic, copy) NSString *variant;
 @property (nonatomic, copy) NSString *ascentOverride;

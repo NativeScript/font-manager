@@ -1,10 +1,11 @@
 #import <Foundation/Foundation.h>
+#import "NSCFontTypes.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface NSCFontParseResult : NSObject
 
-@property (nonatomic, copy) NSString *style;
+@property (nonatomic, assign) NSCFontStyle style;
 @property (nonatomic, assign) NSInteger weight;
 @property (nonatomic, assign) NSInteger sizePx;
 @property (nonatomic, strong, nullable) NSNumber *lineHeight;

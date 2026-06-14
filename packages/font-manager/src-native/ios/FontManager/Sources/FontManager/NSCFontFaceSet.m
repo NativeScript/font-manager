@@ -1,7 +1,9 @@
 #import "NSCFontFaceSet.h"
 #import "NSCFontParser.h"
 #import "NSCFontResolver.h"
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
 #import <UIKit/UIKit.h>
+#endif
 
 @interface NSCFontFaceSet ()
 
@@ -235,7 +237,7 @@
         for (NSCFontFace *face in candidates) {
             NSInteger score =
                 labs(face.fontDescriptors.weight - parsed.weight) +
-                ([face.fontDescriptors.style isEqualToString:parsed.style] ? 0 : 1000);
+                (face.fontDescriptors.style == parsed.style ? 0 : 1000);
             if (score < bestScore) { bestScore = score; best = face; }
         }
         if (best) return @[best];

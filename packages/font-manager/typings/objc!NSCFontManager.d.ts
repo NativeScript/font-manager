@@ -1,7 +1,4 @@
 declare class NSCFontDescriptors extends NSObject {
-  kerning: string;
-  variantLigatures: string;
-
   static alloc(): NSCFontDescriptors; // inherited from NSObject
 
   static new(): NSCFontDescriptors; // inherited from NSObject
@@ -18,13 +15,21 @@ declare class NSCFontDescriptors extends NSObject {
 
   featureSettings: string;
 
+  kerning: string;
+
   lineGapOverride: string;
+
+  obliqueAngle: string;
 
   stretch: string;
 
-  style: string;
+  style: NSCFontStyle;
 
   unicodeRange: string;
+
+  variant: string;
+
+  variantLigatures: string;
 
   variationSettings: string;
 
@@ -33,6 +38,8 @@ declare class NSCFontDescriptors extends NSObject {
   constructor(o: { family: string });
 
   initWithFamily(family: string): this;
+
+  setFontDisplayFromString(value: string): void;
 
   setFontStyleFromString(value: string): void;
 
@@ -56,11 +63,21 @@ declare const enum NSCFontDisplay {
 declare class NSCFontFace extends NSObject {
   static alloc(): NSCFontFace; // inherited from NSObject
 
+  static clearFontCache(): void;
+
+  static importFromRemoteLoadCompletion(url: string, load: boolean, completion: (p1: NSArray<NSCFontFace>, p2: string) => void): void;
+
   static new(): NSCFontFace; // inherited from NSObject
+
+  ascentOverride: string;
+
+  descentOverride: string;
 
   display: NSCFontDisplay;
 
   readonly family: string;
+
+  featureSettings: string;
 
   font: any;
 
@@ -68,7 +85,25 @@ declare class NSCFontFace extends NSObject {
 
   readonly fontDescriptors: NSCFontDescriptors;
 
+  readonly fontPath: string;
+
+  lineGapOverride: string;
+
+  onReloadListeners: NSMutableArray<(p1: NSCFontFace, p2: string) => void>;
+
   status: NSCFontFaceStatus;
+
+  stretch: string;
+
+  style: NSCFontStyle;
+
+  unicodeRange: string;
+
+  variant: string;
+
+  variationSettings: string;
+
+  weight: NSCFontWeight;
 
   constructor(o: { family: string });
 
@@ -81,6 +116,8 @@ declare class NSCFontFace extends NSObject {
   constructor(o: { fontDescriptor: NSCFontDescriptors; data: NSData });
 
   constructor(o: { fontDescriptor: NSCFontDescriptors; source: string });
+
+  addReloadListener(listener: (p1: NSCFontFace, p2: string) => void): void;
 
   initWithFamily(family: string): this;
 
@@ -96,16 +133,42 @@ declare class NSCFontFace extends NSObject {
 
   load(callback: (p1: string) => void): void;
 
-  loadSync(callback: (p1: string) => void): void;
+  loadSync(outError: interop.Pointer | interop.Reference<string>): void;
+
+  rawData(): NSData;
+
+  removeAllReloadListeners(): void;
+
+  removeOnReloadListener(listener: (p1: NSCFontFace, p2: string) => void): void;
+
+  setFontAscentOverride(value: string): void;
+
+  setFontDescentOverride(value: string): void;
 
   setFontDisplay(value: string): void;
 
+  setFontFeatureSettings(value: string): void;
+
+  setFontLineGapOverride(value: string): void;
+
+  setFontStretch(value: string): void;
+
   setFontStyleAngle(value: string, angle: string): void;
+
+  setFontUnicodeRange(value: string): void;
+
+  setFontVariant(value: string): void;
+
+  setFontVariationSettings(value: string): void;
 
   setFontWeight(value: string): void;
 
+  updateDescriptor(value: string): void;
+
   updateDescriptorWithValue(value: string): void;
 }
+
+declare var NSCFontFacePattern: string;
 
 declare class NSCFontFaceSet extends NSObject {
   static alloc(): NSCFontFaceSet; // inherited from NSObject
@@ -118,6 +181,14 @@ declare class NSCFontFaceSet extends NSObject {
 
   add(font: NSCFontFace): void;
 
+  addOnLoadingDoneListener(listener: (p1: NSCFontFace) => void): void;
+
+  addOnLoadingErrorListener(listener: (p1: NSCFontFace, p2: string) => void): void;
+
+  addOnLoadingListener(listener: (p1: NSCFontFace) => void): void;
+
+  addOnStatusListener(listener: (p1: NSCFontFaceSetStatus) => void): void;
+
   array(): NSArray<NSCFontFace>;
 
   checkText(font: string, text: string): boolean;
@@ -128,23 +199,23 @@ declare class NSCFontFaceSet extends NSObject {
 
   forEach(block: (p1: NSCFontFace) => void): void;
 
+  has(font: NSCFontFace): boolean;
+
   iter(): NSEnumerator<any>;
 
   loadTextCallback(font: string, text: string, callback: (p1: NSArray<NSCFontFace>, p2: string) => void): void;
 
-  size(): number;
+  ready(callback: (p1: NSCFontFaceSet) => void): void;
 
-  addOnStatusListener(listener: (p1: NSCFontFaceSetStatus) => void): void;
-  removeOnStatusListener(listener: (p1: NSCFontFaceSetStatus) => void): void;
-
-  addOnLoadingListener(listener: (p1: NSCFontFace) => void): void;
-  removeOnLoadingListener(listener: (p1: NSCFontFace) => void): void;
-
-  addOnLoadingDoneListener(listener: (p1: NSCFontFace) => void): void;
   removeOnLoadingDoneListener(listener: (p1: NSCFontFace) => void): void;
 
-  addOnLoadingErrorListener(listener: (p1: NSCFontFace, p2: string) => void): void;
   removeOnLoadingErrorListener(listener: (p1: NSCFontFace, p2: string) => void): void;
+
+  removeOnLoadingListener(listener: (p1: NSCFontFace) => void): void;
+
+  removeOnStatusListener(listener: (p1: NSCFontFaceSetStatus) => void): void;
+
+  size(): number;
 }
 
 declare const enum NSCFontFaceSetEventType {
@@ -189,7 +260,7 @@ declare class NSCFontParseResult extends NSObject {
 
   sizePx: number;
 
-  style: string;
+  style: NSCFontStyle;
 
   weight: number;
 }
@@ -228,6 +299,18 @@ declare class NSCFontResolverResult extends NSObject {
   font: any;
 }
 
+declare const enum NSCFontStyle {
+  Normal = 0,
+
+  Italic = 1,
+
+  Oblique = 2,
+}
+
+declare function NSCFontStyleFromString(value: string): NSCFontStyle;
+
+declare function NSCFontStyleToString(style: NSCFontStyle): string;
+
 declare const enum NSCFontWeight {
   Thin = 100,
 
@@ -247,5 +330,7 @@ declare const enum NSCFontWeight {
 
   Black = 900,
 }
+
+declare var NSCPropertyPattern: string;
 
 declare function NSCUIFontWeight(weight: NSCFontWeight): number;

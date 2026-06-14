@@ -21,7 +21,7 @@
 
     NSArray<NSString *> *tokens = [self tokenize:input];
 
-    NSString *style = @"normal";
+    NSCFontStyle style = NSCFontStyleNormal;
     NSInteger weight = 400;
     NSInteger size = -1;
     NSNumber *lineHeight = nil;
@@ -40,19 +40,11 @@
 
         if ([token isEqualToString:@"italic"]) {
 
-            style = @"italic";
+            style = NSCFontStyleItalic;
 
         } else if ([token hasPrefix:@"oblique"]) {
 
-            NSString *angleStr =
-                [[token stringByReplacingOccurrencesOfString:@"oblique"
-                                                 withString:@""]
-                 stringByTrimmingCharactersInSet:
-                    [NSCharacterSet whitespaceCharacterSet]];
-
-            style = angleStr.length == 0
-                ? @"oblique"
-                : [NSString stringWithFormat:@"oblique %@", angleStr];
+            style = NSCFontStyleOblique;
 
         } else if ([token isEqualToString:@"bold"]) {
 

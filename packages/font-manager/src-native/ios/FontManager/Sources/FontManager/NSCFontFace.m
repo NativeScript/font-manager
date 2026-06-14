@@ -84,8 +84,8 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
     [self _scheduleReloadIfNeeded];
 }
 
-- (NSString *)style { return self.fontDescriptors.style; }
-- (void)setStyle:(NSString *)style {
+- (NSCFontStyle)style { return self.fontDescriptors.style; }
+- (void)setStyle:(NSCFontStyle)style {
     self.fontDescriptors.style = style;
     [self _scheduleReloadIfNeeded];
 }

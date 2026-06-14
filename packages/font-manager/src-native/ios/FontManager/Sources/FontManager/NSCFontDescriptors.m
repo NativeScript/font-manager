@@ -9,7 +9,7 @@
     if (self) {
         _weight = NSCFontWeightNormal;
         _family = [family copy];
-        _style = @"normal";
+        _style = NSCFontStyleNormal;
         _obliqueAngle = nil;
         _variant = @"normal";
         _ascentOverride = @"normal";
@@ -169,19 +169,15 @@
                          stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
 
     if ([trimmed hasPrefix:@"oblique"]) {
-        _style = @"oblique";
-
-        NSString *rest = [trimmed substringFromIndex:@"oblique".length];
-        rest = [rest stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-
+        _style = NSCFontStyleOblique;
+        NSString *rest = [[trimmed substringFromIndex:@"oblique".length]
+                          stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
         _obliqueAngle = rest.length > 0 ? rest : @"0deg";
         return;
     }
 
-    if ([trimmed isEqualToString:@"italic"] || [trimmed isEqualToString:@"normal"]) {
-        _style = trimmed;
-        _obliqueAngle = nil;
-    }
+    _style = NSCFontStyleFromString(trimmed);
+    _obliqueAngle = nil;
 }
 
 - (void)setFontDisplayFromString:(NSString *)value {

@@ -233,7 +233,7 @@ export class FontFace {
   }
 
   get style() {
-    return this.native_.fontDescriptors.style;
+    return NSCFontStyleToString(this.native_.fontDescriptors.style);
   }
 
   set style(value: string) {
