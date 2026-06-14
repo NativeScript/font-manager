@@ -273,9 +273,17 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
 // For system/generic families — re-create UIFont from the resolved family name.
 // Falls back to a weight-matched system font so we never return nil.
 - (UIFont *)_uiFontFromFamily:(NSString *)family size:(CGFloat)size {
-    UIFont *base = [UIFont fontWithName:family size:size];
+    UIFontWeight w = NSCUIFontWeight(self.fontDescriptors.weight);
+    UIFontDescriptor *desc = [UIFontDescriptor fontDescriptorWithFontAttributes:@{
+        UIFontDescriptorFamilyAttribute: family,
+        UIFontDescriptorTraitsAttribute: @{ UIFontWeightTrait: @(w) }
+    }];
+    UIFont *base = desc ? [UIFont fontWithDescriptor:desc size:size] : nil;
     if (!base) {
-        base = [UIFont systemFontOfSize:size weight:NSCUIFontWeight(self.fontDescriptors.weight)];
+        base = [UIFont fontWithName:family size:size];
+    }
+    if (!base) {
+        base = [UIFont systemFontOfSize:size weight:w];
     }
     return [self _applyStyleTraitsToFont:base size:size];
 }

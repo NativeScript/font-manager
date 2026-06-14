@@ -187,7 +187,7 @@ class FontFace {
 
   private val executor: ExecutorService = Executors.newSingleThreadExecutor()
 
-  @JvmOverloads                                               
+  @JvmOverloads
   constructor(
     family: String,
     source: String? = null,
@@ -577,7 +577,10 @@ class FontFace {
             }
 
             if (fontDescriptors.weight != FontWeight.Normal) {
-              font = Typeface.create(font, fontDescriptors.weight.weight)
+              if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                val italic = fontDescriptors.style is FontStyle.Italic
+                font = Typeface.create(font, fontDescriptors.weight.weight, italic)
+              }
             }
             synchronized(lock) {
               status = FontFaceStatus.Loaded
