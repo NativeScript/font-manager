@@ -563,7 +563,7 @@ class FontFace {
                 Typeface.SERIF
               }
 
-              "san-serif" -> {
+              "sans-serif" -> {
                 Typeface.SANS_SERIF
               }
 
