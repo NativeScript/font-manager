@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 #import <UIKit/UIKit.h>
 #endif
 
@@ -32,7 +32,7 @@ typedef NS_ENUM(NSInteger, NSCFontFaceStatus) {
     NSCFontFaceStatusError = 3
 };
 
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 FOUNDATION_EXPORT UIFontWeight NSCUIFontWeight(NSCFontWeight weight);
 #endif
 

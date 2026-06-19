@@ -2,7 +2,7 @@
 #import "NSCFontDescriptors.h"
 #import "NSCFontFaceSet.h"
 #import "NSCFontResolver.h"
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 #import <UIKit/UIKit.h>
 #endif
 
@@ -10,7 +10,7 @@
 @property (nonatomic, copy, nullable) NSString *localOrRemoteSource;
 @property (nonatomic, copy, nullable) NSString *fontPath;
 @property (nonatomic, assign) BOOL reloadPending;
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 @property (nonatomic, strong, nullable, readwrite) UIFont *uiFont;
 #endif
 @end
@@ -254,7 +254,7 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
     return nil;
 }
 
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 
 // Apply italic/oblique trait to a base UIFont via descriptor.
 - (UIFont *)_applyStyleTraitsToFont:(UIFont *)base size:(CGFloat)size {
@@ -313,7 +313,7 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
         CGFontRef font = [[NSCFontResolver shared] registerFontFromData:self.fontData error:&error];
         if (font) {
             self.font = font;
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
             self.uiFont = [self _uiFontFromCGFont:font size:UIFont.labelFontSize];
 #endif
             self.status = NSCFontFaceStatusLoaded;
@@ -344,7 +344,7 @@ static dispatch_queue_t NSCFontFaceQueue(void) {
                            self->_fontPath = src;
                        }
 
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
                        // Custom source font: bridge via PostScript name.
                        // System/generic font (no src): re-create from resolved family name.
                        if (src.length > 0) {

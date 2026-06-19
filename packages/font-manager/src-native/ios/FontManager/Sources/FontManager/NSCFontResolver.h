@@ -1,4 +1,9 @@
 #import <Foundation/Foundation.h>
+
+#if TARGET_OS_IOS || TARGET_OS_VISION
+#import <UIKit/UIKit.h>
+#endif
+
 #import <CoreText/CoreText.h>
 #import "NSCFontFace.h"
 

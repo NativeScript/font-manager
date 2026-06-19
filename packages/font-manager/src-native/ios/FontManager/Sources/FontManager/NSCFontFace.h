@@ -71,7 +71,7 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (nullable NSData *)rawData;
 
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 /**
  * Returns a UIFont at the given point size, or nil if the face has not been
  * loaded yet. The font's weight and italic/oblique traits are applied via
