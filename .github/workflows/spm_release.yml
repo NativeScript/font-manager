@@ -16,6 +16,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: spm-release
+  cancel-in-progress: false
+
 env:
   XCODE_VERSION: '^26.0'
 
@@ -24,6 +28,8 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -62,6 +68,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Package.swift packages/font-manager/nativescript.config.ts
           git commit -m "release: FontManager.xcframework ${{ steps.version.outputs.version }}"
+          git pull --rebase origin main
           git tag "${{ steps.version.outputs.version }}"
           git push origin HEAD:main "refs/tags/${{ steps.version.outputs.version }}"
 
