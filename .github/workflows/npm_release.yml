@@ -1,0 +1,76 @@
+# Publishes @nativescript/font-manager to npm from an existing SPM release tag,
+# so the packaged nativescript.config.ts always points at a resolvable
+# FontManager.xcframework release.
+#
+# Triggered automatically at the end of the SPM Release workflow, or manually
+# via workflow_dispatch. Requires an NPM_TOKEN secret with publish rights to
+# @nativescript/font-manager.
+name: npm Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 1.0.12). Must match an existing SPM release tag. Defaults to packages/font-manager/package.json.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(node -p "require('./packages/font-manager/package.json').version")"
+          fi
+          if ! git rev-parse -q --verify "refs/tags/$VERSION^{commit}" > /dev/null; then
+            echo "error: tag $VERSION not found — run the SPM Release workflow first" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        run: git checkout "refs/tags/${{ steps.version.outputs.version }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and publish @nativescript/font-manager
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+        run: npx nx g @nativescript/plugin-tools:publish font-manager --version="${{ steps.version.outputs.version }}" --verify --no-interactive
+
+      - name: Verify npm publish
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          for i in $(seq 1 10); do
+            if [ "$(npm view "@nativescript/font-manager@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "@nativescript/font-manager@$VERSION is live"
+              exit 0
+            fi
+            echo "not visible yet, retrying ($i/10)..."
+            sleep 15
+          done
+          echo "error: @nativescript/font-manager@$VERSION not visible on the registry" >&2
+          exit 1

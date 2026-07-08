@@ -1,8 +1,8 @@
 # Prebuilds FontManager.xcframework, publishes it as a GitHub release, and
 # stamps the URL + checksum into Package.swift and nativescript.config.ts.
 #
-# After it runs, pull main and publish to npm as usual
-# (npm run publish-packages) with the same version.
+# On success it dispatches the npm Release workflow, which publishes
+# @nativescript/font-manager from the tag it created.
 name: SPM Release
 
 on:
@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # dispatch npm_release.yml
 
 concurrency:
   group: spm-release
@@ -62,11 +63,15 @@ jobs:
       - name: Stamp Package.swift and nativescript.config.ts
         run: node tools/scripts/stamp-spm-release.mjs "${{ steps.version.outputs.version }}" "$(cat dist/spm/FontManager.xcframework.zip.checksum)"
 
+      - name: Stamp package.json version
+        working-directory: packages/font-manager
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+
       - name: Commit and tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Package.swift packages/font-manager/nativescript.config.ts
+          git add Package.swift packages/font-manager/nativescript.config.ts packages/font-manager/package.json
           git commit -m "release: FontManager.xcframework ${{ steps.version.outputs.version }}"
           git pull --rebase origin main
           git tag "${{ steps.version.outputs.version }}"
@@ -101,3 +106,8 @@ jobs:
           )
           EOF
           cd /tmp/spm-verify && swift package resolve
+
+      - name: Trigger npm release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run npm_release.yml --ref main -f version="${{ steps.version.outputs.version }}"
