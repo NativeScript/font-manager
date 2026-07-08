@@ -16,11 +16,18 @@ on:
 permissions:
   contents: write
 
+env:
+  XCODE_VERSION: '^26.0'
+
 jobs:
   release:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
 
       - name: Resolve version
         id: version
@@ -38,7 +45,10 @@ jobs:
       - name: Install visionOS platform
         run: |
           xcodebuild -version
-          xcodebuild -downloadPlatform visionOS -quiet || sudo xcodebuild -downloadPlatform visionOS -quiet
+          sudo xcodebuild -runFirstLaunch
+          if ! xcodebuild -showsdks | grep -q xros; then
+            sudo xcodebuild -downloadPlatform visionOS
+          fi
 
       - name: Build FontManager.xcframework
         run: ./tools/scripts/build-xcframework.sh "$PWD/dist/spm"
