@@ -1,0 +1,86 @@
+# Prebuilds FontManager.xcframework, publishes it as a GitHub release, and
+# stamps the URL + checksum into Package.swift and nativescript.config.ts.
+#
+# After it runs, pull main and publish to npm as usual
+# (npm run publish-packages) with the same version.
+name: SPM Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 1.0.12). Defaults to packages/font-manager/package.json.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(node -p "require('./packages/font-manager/package.json').version")"
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" > /dev/null; then
+            echo "error: tag $VERSION already exists" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install visionOS platform
+        run: |
+          xcodebuild -version
+          xcodebuild -downloadPlatform visionOS -quiet || sudo xcodebuild -downloadPlatform visionOS -quiet
+
+      - name: Build FontManager.xcframework
+        run: ./tools/scripts/build-xcframework.sh "$PWD/dist/spm"
+
+      - name: Stamp Package.swift and nativescript.config.ts
+        run: node tools/scripts/stamp-spm-release.mjs "${{ steps.version.outputs.version }}" "$(cat dist/spm/FontManager.xcframework.zip.checksum)"
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Package.swift packages/font-manager/nativescript.config.ts
+          git commit -m "release: FontManager.xcframework ${{ steps.version.outputs.version }}"
+          git tag "${{ steps.version.outputs.version }}"
+          git push origin HEAD:main "refs/tags/${{ steps.version.outputs.version }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.version }}" \
+            dist/spm/FontManager.xcframework.zip \
+            --title "${{ steps.version.outputs.version }}" \
+            --notes "FontManager.xcframework checksum: \`$(cat dist/spm/FontManager.xcframework.zip.checksum)\`"
+
+      - name: Verify SPM resolution
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p /tmp/spm-verify/Sources/Verify
+          echo > /tmp/spm-verify/Sources/Verify/Verify.swift
+          cat > /tmp/spm-verify/Package.swift <<EOF
+          // swift-tools-version: 5.10
+          import PackageDescription
+          let package = Package(
+              name: "Verify",
+              platforms: [.iOS(.v13)],
+              dependencies: [
+                  .package(url: "https://github.com/${{ github.repository }}.git", exact: "$VERSION")
+              ],
+              targets: [
+                  .target(name: "Verify", dependencies: [.product(name: "FontManager", package: "font-manager")])
+              ]
+          )
+          EOF
+          cd /tmp/spm-verify && swift package resolve

@@ -1,4 +1,8 @@
-// swift-tools-version: 6.3
+// swift-tools-version: 5.10
+
+// The binary target URL and checksum are stamped by the "SPM Release"
+// workflow — do not edit them by hand. The buildable source package lives
+// at packages/font-manager/src-native/ios/FontManager.
 
 import PackageDescription
 
@@ -15,21 +19,10 @@ let package = Package(
         ),
     ],
     targets: [
-        .target(
+        .binaryTarget(
             name: "FontManager",
-            path: "packages/font-manager/src-native/ios/FontManager/Sources/FontManager",
-            publicHeadersPath: ".",
-            linkerSettings: [
-                .linkedFramework("UIKit"),
-                .linkedFramework("CoreText"),
-                .linkedFramework("CoreGraphics"),
-            ]
+            url: "https://github.com/NativeScript/font-manager/releases/download/0.0.0/FontManager.xcframework.zip",
+            checksum: "0000000000000000000000000000000000000000000000000000000000000000"
         ),
-        .testTarget(
-            name: "FontManagerTests",
-            dependencies: ["FontManager"],
-            path: "packages/font-manager/src-native/ios/FontManager/Tests/FontManagerTests"
-        ),
-    ],
-    swiftLanguageModes: [.v6]
+    ]
 )
