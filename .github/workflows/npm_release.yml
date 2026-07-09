@@ -51,14 +51,15 @@ jobs:
       - name: Checkout release tag
         run: git checkout "refs/tags/${{ steps.version.outputs.version }}"
 
+      # Node 24 (LTS) bundles npm >= 11.5.1, which Trusted Publishing requires.
+      # We deliberately do NOT `npm install -g npm@latest` on an older Node: that
+      # self-upgrade corrupts the global npm on hosted runners and drops bundled
+      # deps like `sigstore`, breaking `npm publish --provenance`
+      # (npm/cli#9722). Using Node 24's stock npm avoids that entirely.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: 'https://registry.npmjs.org'
-
-      # Node 22 ships npm ~10.x; Trusted Publishing requires npm >= 11.5.1.
-      - name: Upgrade npm for Trusted Publishing
-        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: npm ci
