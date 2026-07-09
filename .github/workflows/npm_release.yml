@@ -3,8 +3,12 @@
 # FontManager.xcframework release.
 #
 # Triggered automatically at the end of the SPM Release workflow, or manually
-# via workflow_dispatch. Requires an NPM_TOKEN secret with publish rights to
-# @nativescript/font-manager.
+# via workflow_dispatch.
+#
+# Authentication uses npm Trusted Publishing (OIDC) — no NPM_TOKEN required.
+# The `id-token: write` permission below lets the npm CLI (>= 11.5.1) exchange a
+# short-lived GitHub OIDC token for publish rights. The Trusted Publisher must be
+# configured on npmjs.com for this repo + workflow file (npm_release.yml).
 name: npm Release
 
 on:
@@ -17,7 +21,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance
+  id-token: write # required for npm Trusted Publishing (OIDC) + provenance
 
 concurrency:
   group: npm-release
@@ -52,14 +56,34 @@ jobs:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
+      # Node 22 ships npm ~10.x; Trusted Publishing requires npm >= 11.5.1.
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and publish @nativescript/font-manager
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
-        run: npx nx g @nativescript/plugin-tools:publish font-manager --version="${{ steps.version.outputs.version }}" --verify --no-interactive
+      - name: Verify package.json matches release version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG_VERSION="$(node -p "require('./packages/font-manager/package.json').version")"
+          if [ "$PKG_VERSION" != "$VERSION" ]; then
+            echo "error: packages/font-manager/package.json is $PKG_VERSION but expected $VERSION" >&2
+            exit 1
+          fi
+
+      # build.all runs tools/scripts/build-finish.ts, which produces a
+      # ready-to-publish dist/packages/font-manager (cleaned package.json,
+      # publishing assets copied in).
+      - name: Build @nativescript/font-manager
+        run: npx nx run font-manager:build.all
+
+      # Publish the exact version from the release tag. No token env is set —
+      # the npm CLI authenticates via OIDC (Trusted Publishing) and generates
+      # provenance automatically.
+      - name: Publish @nativescript/font-manager
+        working-directory: dist/packages/font-manager
+        run: npm publish --access public --provenance
 
       - name: Verify npm publish
         run: |
