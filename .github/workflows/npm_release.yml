@@ -56,10 +56,16 @@ jobs:
       # self-upgrade corrupts the global npm on hosted runners and drops bundled
       # deps like `sigstore`, breaking `npm publish --provenance`
       # (npm/cli#9722). Using Node 24's stock npm avoids that entirely.
+      #
+      # Intentionally NO `registry-url` here: it makes setup-node write an
+      # .npmrc line (`//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`).
+      # With no token set that empty auth suppresses the OIDC token exchange, so
+      # `npm publish` sends empty credentials and the registry returns
+      # "404 ... do not have permission". registry.npmjs.org is already the
+      # default registry, so OIDC Trusted Publishing works without it.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         run: npm ci
