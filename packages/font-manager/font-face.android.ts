@@ -62,12 +62,58 @@ export function importFontsFromCSS(url: string) {
   });
 }
 
+/**
+ * Reading `org.nativescript.fontmanager.X.Y` crosses the bridge every time, so a
+ * getter that switched over 9 enum constants cost 9 crossings per property read.
+ * These resolve once, on first use — not at module load, since the runtime may not
+ * have the classes bound yet.
+ */
+let bridge: {
+  FontFace: typeof org.nativescript.fontmanager.FontFace;
+  display: Record<'auto' | 'block' | 'fallback' | 'optional' | 'swap', org.nativescript.fontmanager.FontDisplay>;
+  status: Record<'loaded' | 'loading' | 'unloaded', org.nativescript.fontmanager.FontFaceStatus>;
+  weight: Record<'thin' | 'extraLight' | 'light' | 'normal' | 'medium' | 'semiBold' | 'bold' | 'extraBold' | 'black', org.nativescript.fontmanager.FontWeight>;
+};
+
+function natives() {
+  if (!bridge) {
+    const ns = org.nativescript.fontmanager;
+    const D = ns.FontDisplay;
+    const S = ns.FontFaceStatus;
+    const W = ns.FontWeight;
+    bridge = {
+      FontFace: ns.FontFace,
+      display: { auto: D.Auto, block: D.Block, fallback: D.Fallback, optional: D.Optional, swap: D.Swap },
+      status: { loaded: S.Loaded, loading: S.Loading, unloaded: S.Unloaded },
+      weight: {
+        thin: W.Thin,
+        extraLight: W.ExtraLight,
+        light: W.Light,
+        normal: W.Normal,
+        medium: W.Medium,
+        semiBold: W.SemiBold,
+        bold: W.Bold,
+        extraBold: W.ExtraBold,
+        black: W.Black,
+      },
+    };
+  }
+  return bridge;
+}
+
+/**
+ * One JS wrapper per native face. Besides the allocation, this fixes identity:
+ * iterating the set twice used to hand back different objects for the same face,
+ * so `===` never matched.
+ */
+const wrappers = new WeakMap<object, FontFace>();
+
 const ctor_ = Symbol('[[ctor]]');
 export class FontFace {
   native_: org.nativescript.fontmanager.FontFace;
   private extension?: string;
   constructor(family: string, source?: string | TypedArray | ArrayBuffer, descriptors?: FontDescriptor, ctor?: symbol, native?: org.nativescript.fontmanager.FontFace) {
-    if (ctor === ctor_ && native instanceof org.nativescript.fontmanager.FontFace) {
+    if (ctor === ctor_ && native instanceof natives().FontFace) {
       this.native_ = native;
       return;
     }
@@ -105,6 +151,12 @@ export class FontFace {
       if (descriptors.variantLigatures !== undefined) parts.push(`font-variant-ligatures: ${descriptors.variantLigatures};`);
       parts.push('}');
       this.native_.updateDescriptor(parts.join(' '));
+    }
+
+    // Registered here too, so a face handed back through fromNative (events,
+    // iteration) resolves to this same wrapper.
+    if (this.native_) {
+      wrappers.set(this.native_, this);
     }
   }
 
@@ -196,16 +248,17 @@ export class FontFace {
   }
 
   get display() {
+    const d = natives().display;
     switch (this.native_.getDisplay()) {
-      case org.nativescript.fontmanager.FontDisplay.Auto:
+      case d.auto:
         return 'auto';
-      case org.nativescript.fontmanager.FontDisplay.Block:
+      case d.block:
         return 'block';
-      case org.nativescript.fontmanager.FontDisplay.Fallback:
+      case d.fallback:
         return 'fallback';
-      case org.nativescript.fontmanager.FontDisplay.Optional:
+      case d.optional:
         return 'optional';
-      case org.nativescript.fontmanager.FontDisplay.Swap:
+      case d.swap:
         return 'swap';
     }
   }
@@ -215,16 +268,19 @@ export class FontFace {
   }
 
   get family() {
-    return this.native_.getFontFamily();
+    // Set once at construction on the native side, so it is worth not re-marshaling.
+    return (this.family_ ??= this.native_.getFontFamily());
   }
+  private family_?: string;
 
   get status() {
+    const s = natives().status;
     switch (this.native_.getStatus()) {
-      case org.nativescript.fontmanager.FontFaceStatus.Loaded:
+      case s.loaded:
         return 'loaded';
-      case org.nativescript.fontmanager.FontFaceStatus.Loading:
+      case s.loading:
         return 'loading';
-      case org.nativescript.fontmanager.FontFaceStatus.Unloaded:
+      case s.unloaded:
         return 'unloaded';
     }
   }
@@ -238,24 +294,25 @@ export class FontFace {
   }
 
   get weight() {
+    const w = natives().weight;
     switch (this.native_.getWeight()) {
-      case org.nativescript.fontmanager.FontWeight.Thin:
+      case w.thin:
         return 'thin';
-      case org.nativescript.fontmanager.FontWeight.ExtraLight:
+      case w.extraLight:
         return 'extra-light';
-      case org.nativescript.fontmanager.FontWeight.Light:
+      case w.light:
         return 'light';
-      case org.nativescript.fontmanager.FontWeight.Normal:
+      case w.normal:
         return 'normal';
-      case org.nativescript.fontmanager.FontWeight.Medium:
+      case w.medium:
         return 'medium';
-      case org.nativescript.fontmanager.FontWeight.SemiBold:
+      case w.semiBold:
         return 'semi-bold';
-      case org.nativescript.fontmanager.FontWeight.Bold:
+      case w.bold:
         return 'bold';
-      case org.nativescript.fontmanager.FontWeight.ExtraBold:
+      case w.extraBold:
         return 'extra-bold';
-      case org.nativescript.fontmanager.FontWeight.Black:
+      case w.black:
         return 'black';
     }
   }
@@ -285,11 +342,15 @@ export class FontFace {
   }
 
   static fromNative(native: any): FontFace | null {
-    if (native instanceof org.nativescript.fontmanager.FontFace) {
-      const font = new FontFace('', undefined, undefined, ctor_, native);
-      font.native_ = native;
-      return font;
+    if (!(native instanceof natives().FontFace)) {
+      return null;
     }
-    return null;
+    const existing = wrappers.get(native);
+    if (existing) {
+      return existing;
+    }
+    const font = new FontFace('', undefined, undefined, ctor_, native);
+    wrappers.set(native, font);
+    return font;
   }
 }

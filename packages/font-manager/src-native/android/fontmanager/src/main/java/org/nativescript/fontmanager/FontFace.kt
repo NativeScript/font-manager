@@ -11,8 +11,7 @@ import java.io.FileOutputStream
 import java.net.URL
 import java.nio.ByteBuffer
 import java.util.UUID
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Matcher
 
@@ -25,8 +24,16 @@ data class FontSnapshot(
   val fontFamily: String,
   val weight: FontWeight,
   val style: FontStyle,
-  val rawData: ByteArray?
+  private val rawDataProvider: () -> ByteArray?
 ) {
+  /**
+   * Read on demand, and at most once per snapshot.
+   *
+   * Snapshots are taken to compare [version] / [sourceHash]; eagerly copying the
+   * whole font file into every snapshot made that comparison cost a full file read.
+   */
+  val rawData: ByteArray? by lazy(LazyThreadSafetyMode.PUBLICATION) { rawDataProvider() }
+
   override fun equals(other: Any?): Boolean {
     if (this === other) return true
     if (other !is FontSnapshot) return false
@@ -65,12 +72,34 @@ class FontFace {
     }
   @Volatile private var _matchingHash: Long = 0L
 
-  private var _dataHash: Long = 0L
+  /**
+   * Computed on first read rather than at construction — hashing meant copying the
+   * whole buffer, which every `new FontFace(family, bytes)` paid even if the hash
+   * was never asked for.
+   */
+  private val _dataHash: Long
+    get() {
+      var h = _dataHashValue
+      if (h == 0L) {
+        h = fontData?.let { buffer ->
+          val bytes = ByteArray(buffer.remaining())
+          buffer.duplicate().get(bytes)
+          bytes.contentHashCode().toLong()
+        } ?: 0L
+        if (h == 0L) h = -1L
+        _dataHashValue = h
+      }
+      return h
+    }
+  @Volatile private var _dataHashValue: Long = 0L
 
   var font: Typeface? = null
     private set
   var fontFamily: String
     private set
+
+  /** Lowercased [fontFamily], precomputed for the per-lookup map keys in [FontFaceSet]. */
+  internal val familyKey: String by lazy { fontFamily.lowercase() }
   private var fontData: ByteBuffer? = null
   var fontPath: String? = null
     private set
@@ -94,12 +123,15 @@ class FontFace {
     )
 
     @JvmStatic
-    private val executors = Executors.newSingleThreadExecutor()
+    private val executors = FontExecutors.serial()
+
+    internal const val FONT_CACHE_DIR = "ns_fonts_cache"
 
     @JvmStatic
     fun clearFontCache(context: Context) {
+      TypefaceCache.clear()
       executors.execute {
-        val fonts = File(context.filesDir, "ns_fonts")
+        val fonts = File(context.filesDir, FONT_CACHE_DIR)
         if (fonts.exists()) {
           fonts.deleteRecursively()
         }
@@ -185,7 +217,7 @@ class FontFace {
 
   private val lock = Any()
 
-  private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+  private val executor: Executor = FontExecutors.serial()
 
   @JvmOverloads
   constructor(
@@ -207,7 +239,6 @@ class FontFace {
     fontFamily = family
     fontData = ByteBuffer.wrap(source)
     fontDescriptors = descriptors ?: FontDescriptors(family)
-    _dataHash = source.contentHashCode().toLong()
   }
 
   @JvmOverloads
@@ -219,9 +250,6 @@ class FontFace {
     fontFamily = family
     fontData = source
     fontDescriptors = descriptors ?: FontDescriptors(family)
-    val bytes = ByteArray(source.remaining())
-    source.duplicate().get(bytes)
-    _dataHash = bytes.contentHashCode().toLong()
   }
 
 
@@ -441,7 +469,7 @@ class FontFace {
   }
 
   private fun cacheData(context: Context, source: String): Typeface {
-    val nsFonts = File(context.filesDir, "ns_fonts_cache")
+    val nsFonts = File(context.filesDir, FONT_CACHE_DIR)
     nsFonts.mkdir()
     val uri = source.toUri()
     if (uri.lastPathSegment == null) {
@@ -468,7 +496,7 @@ class FontFace {
   }
 
   private fun handleFontPath(file: File): Typeface {
-    return Typeface.createFromFile(file)
+    return TypefaceCache.fromFile(file)
   }
 
   private fun bumpVersion() {
@@ -490,7 +518,7 @@ class FontFace {
     fontFamily = fontFamily,
     weight = fontDescriptors.weight,
     style = fontDescriptors.style,
-    rawData = rawData()
+    rawDataProvider = ::rawData
   )
 
   private fun scheduleReloadIfNeeded() {
@@ -507,14 +535,35 @@ class FontFace {
     }
   }
 
+  private val pendingLoadCallbacks = ArrayList<(error: String?) -> Unit>()
+
   fun load(context: Context, callback: (error: String?) -> Unit) {
-    if (status == FontFaceStatus.Loaded) {
-      callback(null)
-      return
+    synchronized(lock) {
+      if (status == FontFaceStatus.Loaded) {
+        callback(null)
+        return
+      }
+      // A load is already in flight — queue the callback instead of posting
+      // another runnable that would no-op against the same in-flight status.
+      // Callers on hot paths (per-view paint access, per-node append) can
+      // otherwise pile duplicate runnables onto the executor while a slow
+      // source (e.g. a remote font) is still downloading.
+      if (status == FontFaceStatus.Loading) {
+        pendingLoadCallbacks.add(callback)
+        return
+      }
+      status = FontFaceStatus.Loading
+      pendingLoadCallbacks.add(callback)
     }
-    status = FontFaceStatus.Loading
     executor.execute {
-      loadSync(context, callback)
+      loadSync(context) { error ->
+        val queued = synchronized(lock) {
+          val cbs = pendingLoadCallbacks.toList()
+          pendingLoadCallbacks.clear()
+          cbs
+        }
+        queued.forEach { it(error) }
+      }
     }
   }
 
@@ -531,7 +580,10 @@ class FontFace {
     when (fontFamily) {
       "math" -> {
         val font = try {
-          ResourcesCompat.getFont(context, getMathFontPath(fontDescriptors.weight.weight))
+          val resId = getMathFontPath(fontDescriptors.weight.weight)
+          TypefaceCache.fromResource(resId) {
+            ResourcesCompat.getFont(context, resId) ?: Typeface.DEFAULT
+          }
         } catch (e: Exception) {
           Log.w("JS", "Failed to get $fontFamily font falling back to the system default")
           Typeface.DEFAULT
@@ -546,49 +598,62 @@ class FontFace {
 
       else -> {
         if (fontData == null && localOrRemoteSource == null) {
-          val family = genericFontFamilies[fontFamily]
-          if (family != null) {
-            val style = if (fontDescriptors.weight.weight >= 600) {
-              if (fontDescriptors.style is FontStyle.Italic) {
-                Typeface.BOLD_ITALIC
-              } else {
-                Typeface.BOLD
-              }
+          // Source-less faces resolve through the system. Generic families map
+          // to their platform default; any other family is looked up by name
+          // and falls back to the system default when it is not installed
+          // (CSS font fallback semantics). Previously non-generic source-less
+          // faces fell through here without invoking the callback and with
+          // status stuck at Loading, so callers polling `font != null`
+          // re-posted a no-op load runnable on every check, forever.
+          val family = genericFontFamilies[fontFamily] ?: fontFamily
+          val style = if (fontDescriptors.weight.weight >= 600) {
+            if (fontDescriptors.style is FontStyle.Italic) {
+              Typeface.BOLD_ITALIC
             } else {
-              fontDescriptors.style.fontStyle
+              Typeface.BOLD
             }
-
-            var font = when (fontFamily) {
-              "serif" -> {
-                Typeface.SERIF
-              }
-
-              "sans-serif" -> {
-                Typeface.SANS_SERIF
-              }
-
-              "monospace" -> {
-                Typeface.MONOSPACE
-              }
-
-              else -> {
-                Typeface.create(family, style)
-              }
-            }
-
-            if (fontDescriptors.weight != FontWeight.Normal) {
-              if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                val italic = fontDescriptors.style is FontStyle.Italic
-                font = Typeface.create(font, fontDescriptors.weight.weight, italic)
-              }
-            }
-            synchronized(lock) {
-              status = FontFaceStatus.Loaded
-            }
-            this.font = font
-            callback(null)
-            return
+          } else {
+            fontDescriptors.style.fontStyle
           }
+
+          // Key tracks which branch produced the base typeface so the derived
+          // weighted entry below cannot collide across families.
+          val baseKey = "$fontFamily:$style"
+          var font = when (fontFamily) {
+            "serif" -> {
+              Typeface.SERIF
+            }
+
+            "sans-serif" -> {
+              Typeface.SANS_SERIF
+            }
+
+            "monospace" -> {
+              Typeface.MONOSPACE
+            }
+
+            else -> {
+              TypefaceCache.fromFamily(family, style)
+            }
+          }
+
+          if (fontDescriptors.weight != FontWeight.Normal) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+              val italic = fontDescriptors.style is FontStyle.Italic
+              font = TypefaceCache.weighted(
+                font,
+                baseKey,
+                fontDescriptors.weight.weight,
+                italic
+              )
+            }
+          }
+          synchronized(lock) {
+            status = FontFaceStatus.Loaded
+          }
+          this.font = font
+          callback(null)
+          return
         }
       }
     }

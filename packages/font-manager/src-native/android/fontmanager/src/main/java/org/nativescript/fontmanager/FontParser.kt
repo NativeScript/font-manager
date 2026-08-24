@@ -9,9 +9,29 @@ object FontParser {
 		val sizePx: Int,
 		val lineHeight: Float? = null,
 		val families: List<String>
-	)
+	) {
+		/** Lowercased [families], computed once because Results are memoized. */
+		internal val familyKeys: List<String> by lazy { families.map { it.lowercase() } }
+	}
 
+	/** Sentinel so inputs that fail to parse are cached too, instead of re-tokenizing every call. */
+	private val PARSE_FAILED = Any()
+	private val cache = LruMap<String, Any>(64)
+
+	/**
+	 * [Result] is immutable, so parses of the same shorthand are memoized —
+	 * `check`/`load` are called per draw and were re-running the tokenizer each time.
+	 */
 	fun parse(input: String): Result? {
+		cache[input]?.let {
+			return if (it === PARSE_FAILED) null else it as Result
+		}
+		val result = parseUncached(input)
+		cache[input] = result ?: PARSE_FAILED
+		return result
+	}
+
+	private fun parseUncached(input: String): Result? {
 		val tokens = tokenize(input)
 
 		var style: FontStyle = FontStyle.Normal
@@ -79,7 +99,8 @@ object FontParser {
 			weight = weight,
 			sizePx = finalSize,
 			lineHeight = lineHeight,
-			families = families
+			// Copied because the Result is shared out of the parse cache.
+			families = families.toList()
 		)
 	}
 

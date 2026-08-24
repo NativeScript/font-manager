@@ -1,16 +1,14 @@
 package org.nativescript.fontmanager
 
 import android.content.Context
-import android.graphics.Typeface
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
 class FontFaceSet {
   private val fonts = mutableSetOf<FontFace>()
   private val fontsByFamily = mutableMapOf<String, MutableList<FontFace>>()
-  private val executor = Executors.newSingleThreadExecutor()
+  private val executor = FontExecutors.serial()
 
   enum class Status { Loading, Loaded }
 
@@ -70,7 +68,7 @@ class FontFaceSet {
 
   fun add(font: FontFace) {
     val added = fonts.add(font)
-    fontsByFamily.getOrPut(font.fontFamily.lowercase()) { mutableListOf() }.add(font)
+    fontsByFamily.getOrPut(font.familyKey) { mutableListOf() }.add(font)
 
     if (added) {
       val listener: (FontFace, String?) -> Unit = { reloadedFace, error ->
@@ -90,7 +88,7 @@ class FontFaceSet {
   fun delete(font: FontFace) {
     if (!fonts.remove(font)) return
     reloadListeners.remove(font)
-    val key = font.fontFamily.lowercase()
+    val key = font.familyKey
     fontsByFamily[key]?.let { list ->
       list.remove(font)
       if (list.isEmpty()) fontsByFamily.remove(key)
@@ -117,20 +115,15 @@ class FontFaceSet {
     }
   }
 
-  private fun resolveGeneric(family: String): Typeface? {
-    return when (family.lowercase()) {
-      "serif" -> Typeface.SERIF
-      "sans-serif" -> Typeface.SANS_SERIF
-      "monospace" -> Typeface.MONOSPACE
-      "cursive" -> Typeface.create("cursive", Typeface.NORMAL)
-      "fantasy" -> Typeface.create("fantasy", Typeface.NORMAL)
-      else -> null
-    }
-  }
+  /**
+   * Only membership matters here — the caller discards the typeface — so this no
+   * longer materializes one just to null-check it.
+   */
+  private fun isGenericFamily(familyKey: String): Boolean = familyKey in GENERIC_FAMILIES
 
   private fun resolveFonts(parsed: FontParser.Result): List<FontFace> {
-    for (family in parsed.families) {
-      val candidates = fontsByFamily[family.lowercase()]
+    for (familyKey in parsed.familyKeys) {
+      val candidates = fontsByFamily[familyKey]
       if (!candidates.isNullOrEmpty()) {
         val best = candidates.minByOrNull { face ->
           abs(face.weight.weight - parsed.weight.weight) +
@@ -138,7 +131,7 @@ class FontFaceSet {
         }
         if (best != null) return listOf(best)
       }
-      if (resolveGeneric(family) != null) return emptyList()
+      if (isGenericFamily(familyKey)) return emptyList()
     }
     return emptyList()
   }
@@ -224,5 +217,8 @@ class FontFaceSet {
   companion object {
     @JvmStatic
     val instance = FontFaceSet()
+
+    private val GENERIC_FAMILIES =
+      setOf("serif", "sans-serif", "monospace", "cursive", "fantasy")
   }
 }
