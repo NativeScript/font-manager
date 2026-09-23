@@ -1,5 +1,7 @@
 package org.nativescript.fontmanager
 
+import android.os.Handler
+import android.os.Looper
 import java.util.ArrayDeque
 import java.util.concurrent.Executor
 import java.util.concurrent.LinkedBlockingQueue
@@ -17,7 +19,7 @@ internal object FontExecutors {
    * so an app holding many [FontFace]s costs no threads at rest — previously each
    * face owned a single-thread executor that lived for the process lifetime.
    */
-  val shared: Executor = pool(2, "ns-font-manager")
+  val shared: Executor = pool(Runtime.getRuntime().availableProcessors().coerceIn(2, 4), "ns-font-manager")
 
   /**
    * Separate pool for work that blocks on the network — a download parks its thread
@@ -26,6 +28,17 @@ internal object FontExecutors {
    * wider than [shared] for the same reason, since its threads are mostly waiting.
    */
   val io: Executor = pool(4, "ns-font-manager-io")
+
+  /**
+   * Every callback this library hands back originates in JS, and the NativeScript
+   * runtime is bound to the main thread, so results are delivered here rather than
+   * on whichever pool thread happened to finish the work.
+   */
+  val main: Executor = Handler(Looper.getMainLooper()).let { handler ->
+    Executor { command ->
+      if (Looper.myLooper() === handler.looper) command.run() else handler.post(command)
+    }
+  }
 
   fun serial(delegate: Executor = shared): Executor = SerialExecutor(delegate)
 }
@@ -38,7 +51,7 @@ internal object FontExecutors {
  */
 internal class SerialExecutor(private val delegate: Executor) : Executor {
   private val tasks = ArrayDeque<Runnable>()
-  private var active: Runnable? = null
+  private var running = false
 
   override fun execute(command: Runnable) {
     synchronized(tasks) {
@@ -46,17 +59,31 @@ internal class SerialExecutor(private val delegate: Executor) : Executor {
         try {
           command.run()
         } finally {
-          scheduleNext()
+          drainNext()
         }
       })
-      if (active == null) scheduleNext()
+      if (running) return
+      running = true
     }
+    drainNext()
   }
 
-  private fun scheduleNext() {
-    synchronized(tasks) {
-      active = tasks.poll()
-      active?.let { delegate.execute(it) }
+  /**
+   * [delegate] is never called under the lock: a delegate that runs the task inline
+   * would otherwise re-enter and self-deadlock on a non-reentrant queue.
+   */
+  private fun drainNext() {
+    val next = synchronized(tasks) {
+      tasks.poll().also { if (it == null) running = false }
+    } ?: return
+    try {
+      delegate.execute(next)
+    } catch (e: Throwable) {
+      synchronized(tasks) {
+        tasks.clear()
+        running = false
+      }
+      throw e
     }
   }
 }

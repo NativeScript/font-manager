@@ -229,6 +229,8 @@ export class FontFace {
         return 'loading';
       case NSCFontFaceStatus.Unloaded:
         return 'unloaded';
+      case NSCFontFaceStatus.Error:
+        return 'error';
     }
   }
 

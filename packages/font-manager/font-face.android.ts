@@ -71,7 +71,7 @@ export function importFontsFromCSS(url: string) {
 let bridge: {
   FontFace: typeof org.nativescript.fontmanager.FontFace;
   display: Record<'auto' | 'block' | 'fallback' | 'optional' | 'swap', org.nativescript.fontmanager.FontDisplay>;
-  status: Record<'loaded' | 'loading' | 'unloaded', org.nativescript.fontmanager.FontFaceStatus>;
+  status: Record<'loaded' | 'loading' | 'unloaded' | 'error', org.nativescript.fontmanager.FontFaceStatus>;
   weight: Record<'thin' | 'extraLight' | 'light' | 'normal' | 'medium' | 'semiBold' | 'bold' | 'extraBold' | 'black', org.nativescript.fontmanager.FontWeight>;
 };
 
@@ -84,7 +84,7 @@ function natives() {
     bridge = {
       FontFace: ns.FontFace,
       display: { auto: D.Auto, block: D.Block, fallback: D.Fallback, optional: D.Optional, swap: D.Swap },
-      status: { loaded: S.Loaded, loading: S.Loading, unloaded: S.Unloaded },
+      status: { loaded: S.Loaded, loading: S.Loading, unloaded: S.Unloaded, error: S.Error },
       weight: {
         thin: W.Thin,
         extraLight: W.ExtraLight,
@@ -174,10 +174,6 @@ export class FontFace {
 
   load() {
     return new Promise<void>((resolve, reject) => {
-      if (this.status === 'loaded') {
-        resolve();
-        return;
-      }
       const cb = new kotlin.jvm.functions.Function1({
         invoke(error) {
           if (error) {
@@ -282,6 +278,8 @@ export class FontFace {
         return 'loading';
       case s.unloaded:
         return 'unloaded';
+      case s.error:
+        return 'error';
     }
   }
 

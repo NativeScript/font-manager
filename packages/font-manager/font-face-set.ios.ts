@@ -42,7 +42,15 @@ export class FontFaceSet extends Observable {
   }
   private static _instance: FontFaceSet;
 
-  ready: Promise<void> = Promise.resolve();
+  /**
+   * Resolves once no loads are outstanding. This was hardcoded to an
+   * already-resolved promise, so awaiting it never actually waited.
+   */
+  get ready(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.native_.ready(() => resolve());
+    });
+  }
 
   get size(): number {
     return this.native_.size();

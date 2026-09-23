@@ -69,7 +69,10 @@ object FontParser {
 					weight = FontWeight.from(t.toInt())
 				}
 
-				t.endsWith("px") -> {
+				// Matched on the part before the slash so the `<size>/<line-height>`
+				// shorthand reaches the split below; `endsWith("px")` saw "16px/1.5"
+				// as a family name and left size null, failing the whole parse.
+				t.substringBefore("/").endsWith("px") -> {
 					val parts = t.split("/")
 
 					size = parts[0].removeSuffix("px").toIntOrNull()

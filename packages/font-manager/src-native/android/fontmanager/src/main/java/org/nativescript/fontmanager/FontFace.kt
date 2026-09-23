@@ -16,32 +16,6 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Matcher
 
 
-data class FontSnapshot(
-  val id: String,
-  val version: Long,
-  val sourceHash: Long,
-  val matchingHash: Long,
-  val fontFamily: String,
-  val weight: FontWeight,
-  val style: FontStyle,
-  private val rawDataProvider: () -> ByteArray?
-) {
-  /**
-   * Read on demand, and at most once per snapshot.
-   *
-   * Snapshots are taken to compare [version] / [sourceHash]; eagerly copying the
-   * whole font file into every snapshot made that comparison cost a full file read.
-   */
-  val rawData: ByteArray? by lazy(LazyThreadSafetyMode.PUBLICATION) { rawDataProvider() }
-
-  override fun equals(other: Any?): Boolean {
-    if (this === other) return true
-    if (other !is FontSnapshot) return false
-    return id == other.id && version == other.version
-  }
-  override fun hashCode(): Int = 31 * id.hashCode() + version.hashCode()
-}
-
 class FontFace {
   val id: String = UUID.randomUUID().toString()
 
@@ -93,6 +67,7 @@ class FontFace {
     }
   @Volatile private var _dataHashValue: Long = 0L
 
+  @Volatile
   var font: Typeface? = null
     private set
   var fontFamily: String
@@ -187,19 +162,18 @@ class FontFace {
                 font.setFontStyle(fontStyle)
                 FontFaceSet.instance.add(font)
                 if (load) {
-                  font.loadSync(context) {}
+                  font.loadOnCallerThread(context) {}
                 }
                 result.add(font)
               }
             }
-            callback(result, null)
-
+            FontExecutors.main.execute { callback(result, null) }
           } catch (e: Exception) {
-            callback(result, e.localizedMessage)
+            FontExecutors.main.execute { callback(result, e.localizedMessage) }
           }
         }
       } catch (e: Exception) {
-        callback(result, e.localizedMessage)
+        FontExecutors.main.execute { callback(result, e.localizedMessage) }
       }
     }
   }
@@ -521,78 +495,91 @@ class FontFace {
     _matchingHash = 0L
   }
 
-  fun snapshot(): FontSnapshot = FontSnapshot(
-    id = id,
-    version = version,
-    sourceHash = sourceHash,
-    matchingHash = matchingHash,
-    fontFamily = fontFamily,
-    weight = fontDescriptors.weight,
-    style = fontDescriptors.style,
-    rawDataProvider = ::rawData
-  )
-
   private fun scheduleReloadIfNeeded() {
     bumpVersion()
-    if (status != FontFaceStatus.Loaded) return
     synchronized(lock) {
-      if (reloadPending) return
+      if (status != FontFaceStatus.Loaded || reloadPending) return
       reloadPending = true
+      status = FontFaceStatus.Unloaded
     }
-    synchronized(lock) { status = FontFaceStatus.Unloaded }
     executor.execute {
       synchronized(lock) { reloadPending = false }
-      reloadListeners.forEach { it(this, null) }
+      FontExecutors.main.execute { reloadListeners.forEach { it(this, null) } }
     }
   }
 
   private val pendingLoadCallbacks = ArrayList<(error: String?) -> Unit>()
+  private var loadInFlight = false
+
+  private enum class Admission { AlreadyLoaded, Queued, Claimed }
+
+  /**
+   * Every load request goes through here, so at most one load per face is ever in
+   * flight and every caller is answered exactly once.
+   *
+   * Callers on hot paths (per-view paint access, per-node append) used to pile a
+   * duplicate runnable onto the executor on every check while a slow source was
+   * still downloading, and [FontFaceSet.load] reaching a face directly could
+   * start a second load alongside one already running.
+   */
+  private fun admit(callback: (error: String?) -> Unit): Admission = synchronized(lock) {
+    if (status == FontFaceStatus.Loaded) return Admission.AlreadyLoaded
+    pendingLoadCallbacks.add(callback)
+    if (loadInFlight) return Admission.Queued
+    loadInFlight = true
+    status = FontFaceStatus.Loading
+    Admission.Claimed
+  }
+
+  /**
+   * Publishes the result and answers every caller admitted since the load started.
+   * Only the first call per load wins, so a late failure cannot downgrade a result
+   * already reported as loaded.
+   */
+  private fun finish(error: String?) {
+    val queued = synchronized(lock) {
+      if (!loadInFlight) return
+      status = if (error == null) FontFaceStatus.Loaded else FontFaceStatus.Error
+      loadInFlight = false
+      val cbs = pendingLoadCallbacks.toList()
+      pendingLoadCallbacks.clear()
+      cbs
+    }
+    if (queued.isNotEmpty()) FontExecutors.main.execute { queued.forEach { it(error) } }
+  }
 
   fun load(context: Context, callback: (error: String?) -> Unit) {
-    synchronized(lock) {
-      if (status == FontFaceStatus.Loaded) {
-        callback(null)
-        return
-      }
-      // A load is already in flight — queue the callback instead of posting
-      // another runnable that would no-op against the same in-flight status.
-      // Callers on hot paths (per-view paint access, per-node append) can
-      // otherwise pile duplicate runnables onto the executor while a slow
-      // source (e.g. a remote font) is still downloading.
-      if (status == FontFaceStatus.Loading) {
-        pendingLoadCallbacks.add(callback)
-        return
-      }
-      status = FontFaceStatus.Loading
-    }
-    executor.execute {
-      loadSync(context, callback)
+    when (admit(callback)) {
+      Admission.AlreadyLoaded -> FontExecutors.main.execute { callback(null) }
+      Admission.Queued -> Unit
+      Admission.Claimed -> executor.execute { runLoad(context) }
     }
   }
 
-  internal fun loadSync(context: Context, callback: (error: String?) -> Unit) {
-    // Every terminal path below reports through here, because the queue is drained
-    // wherever the load actually ends: FontFaceSet.load calls loadSync directly, so
-    // draining in load()'s wrapper instead left callbacks queued against a set-level
-    // load stranded until — and then misreported by — the next load.
-    fun finish(error: String?) {
-      val queued = synchronized(lock) {
-        val cbs = pendingLoadCallbacks.toList()
-        pendingLoadCallbacks.clear()
-        cbs
-      }
-      callback(error)
-      queued.forEach { it(error) }
+  /** Runs the load on the calling thread, for callers that already own a worker. */
+  internal fun loadOnCallerThread(context: Context, callback: (error: String?) -> Unit) {
+    when (admit(callback)) {
+      Admission.AlreadyLoaded -> FontExecutors.main.execute { callback(null) }
+      Admission.Queued -> Unit
+      Admission.Claimed -> runLoad(context)
     }
+  }
 
-    if (status == FontFaceStatus.Loaded) {
-      finish(null)
-      return
+  /**
+   * Nothing may escape without calling [finish]. An exception that got past the
+   * inner handlers would otherwise leave the face claimed forever, stranding every
+   * queued callback and rejecting all later loads by silence.
+   */
+  private fun runLoad(context: Context) {
+    try {
+      resolveAndFinish(context)
+    } catch (e: Throwable) {
+      finish(e.localizedMessage ?: "Failed to load $fontFamily")
+      throw e
     }
-    synchronized(lock) {
-      status = FontFaceStatus.Loading
-    }
-    val isMath = fontFamily == "math"
+  }
+
+  private fun resolveAndFinish(context: Context) {
     // todo handle "fangsong"
     when (fontFamily) {
       "math" -> {
@@ -604,9 +591,6 @@ class FontFace {
         } catch (e: Exception) {
           Log.w("JS", "Failed to get $fontFamily font falling back to the system default")
           Typeface.DEFAULT
-        }
-        synchronized(lock) {
-          status = FontFaceStatus.Loaded
         }
         this.font = font
         finish(null)
@@ -665,9 +649,6 @@ class FontFace {
               )
             }
           }
-          synchronized(lock) {
-            status = FontFaceStatus.Loaded
-          }
           this.font = font
           finish(null)
           return
@@ -675,37 +656,25 @@ class FontFace {
       }
     }
 
+    val source = localOrRemoteSource
+    if (source == null) {
+      // In-memory sources are accepted by the constructors and surfaced by
+      // rawData(), but nothing here turns them into a Typeface. Report it instead
+      // of returning without finishing, which left status at Loading forever and
+      // grew pendingLoadCallbacks without bound on every retry.
+      finish("Loading $fontFamily from in-memory data is not supported on Android")
+      return
+    }
 
-    localOrRemoteSource?.let {
-      if (it.startsWith("http")) {
-        try {
-          val font = cacheData(context, localOrRemoteSource!!)
-          this.font = font
-          synchronized(lock) {
-            status = FontFaceStatus.Loaded
-          }
-          finish(null)
-        } catch (e: Exception) {
-          synchronized(lock) {
-            status = FontFaceStatus.Error
-          }
-          finish(e.localizedMessage)
-        }
+    try {
+      this.font = if (source.startsWith("http")) {
+        cacheData(context, source)
       } else {
-        try {
-          val fontPath = File(it)
-          this.font = handleFontPath(fontPath)
-          synchronized(lock) {
-            status = FontFaceStatus.Loaded
-          }
-          finish(null)
-        } catch (e: Exception) {
-          synchronized(lock) {
-            status = FontFaceStatus.Error
-          }
-          finish(e.localizedMessage)
-        }
+        handleFontPath(File(source))
       }
+      finish(null)
+    } catch (e: Exception) {
+      finish(e.localizedMessage ?: "Failed to load $fontFamily from $source")
     }
   }
 }
