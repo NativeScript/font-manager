@@ -122,8 +122,9 @@ class FontFace {
       Pair("emoji", "Noto Emoji"),
     )
 
+    /** Downloads CSS and remote fonts, so it blocks — see [FontExecutors.io]. */
     @JvmStatic
-    private val executors = FontExecutors.serial()
+    private val executors = FontExecutors.serial(FontExecutors.io)
 
     internal const val FONT_CACHE_DIR = "ns_fonts_cache"
 
@@ -217,7 +218,17 @@ class FontFace {
 
   private val lock = Any()
 
-  private val executor: Executor = FontExecutors.serial()
+  /**
+   * A remote face blocks its thread for the whole download, so it runs on the I/O
+   * pool instead of the shared one. Lazy because the source is assigned by the
+   * constructor body, which runs after property initializers.
+   */
+  private val executor: Executor by lazy {
+    FontExecutors.serial(if (isRemoteSource) FontExecutors.io else FontExecutors.shared)
+  }
+
+  private val isRemoteSource: Boolean
+    get() = localOrRemoteSource?.startsWith("http") == true
 
   @JvmOverloads
   constructor(
@@ -553,23 +564,29 @@ class FontFace {
         return
       }
       status = FontFaceStatus.Loading
-      pendingLoadCallbacks.add(callback)
     }
     executor.execute {
-      loadSync(context) { error ->
-        val queued = synchronized(lock) {
-          val cbs = pendingLoadCallbacks.toList()
-          pendingLoadCallbacks.clear()
-          cbs
-        }
-        queued.forEach { it(error) }
-      }
+      loadSync(context, callback)
     }
   }
 
   internal fun loadSync(context: Context, callback: (error: String?) -> Unit) {
+    // Every terminal path below reports through here, because the queue is drained
+    // wherever the load actually ends: FontFaceSet.load calls loadSync directly, so
+    // draining in load()'s wrapper instead left callbacks queued against a set-level
+    // load stranded until — and then misreported by — the next load.
+    fun finish(error: String?) {
+      val queued = synchronized(lock) {
+        val cbs = pendingLoadCallbacks.toList()
+        pendingLoadCallbacks.clear()
+        cbs
+      }
+      callback(error)
+      queued.forEach { it(error) }
+    }
+
     if (status == FontFaceStatus.Loaded) {
-      callback(null)
+      finish(null)
       return
     }
     synchronized(lock) {
@@ -592,7 +609,7 @@ class FontFace {
           status = FontFaceStatus.Loaded
         }
         this.font = font
-        callback(null)
+        finish(null)
         return
       }
 
@@ -652,7 +669,7 @@ class FontFace {
             status = FontFaceStatus.Loaded
           }
           this.font = font
-          callback(null)
+          finish(null)
           return
         }
       }
@@ -667,12 +684,12 @@ class FontFace {
           synchronized(lock) {
             status = FontFaceStatus.Loaded
           }
-          callback(null)
+          finish(null)
         } catch (e: Exception) {
           synchronized(lock) {
             status = FontFaceStatus.Error
           }
-          callback(e.localizedMessage)
+          finish(e.localizedMessage)
         }
       } else {
         try {
@@ -681,12 +698,12 @@ class FontFace {
           synchronized(lock) {
             status = FontFaceStatus.Loaded
           }
-          callback(null)
+          finish(null)
         } catch (e: Exception) {
           synchronized(lock) {
             status = FontFaceStatus.Error
           }
-          callback(e.localizedMessage)
+          finish(e.localizedMessage)
         }
       }
     }

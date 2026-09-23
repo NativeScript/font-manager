@@ -94,18 +94,20 @@ export class FontFaceSet extends Observable {
   }
 
   // These were declared as generators but `return`ed an iterator object, so nothing
-  // was ever yielded. The object also treated an exhausted iterator as falsy, while
-  // a Kotlin Iterator throws NoSuchElementException — hence hasNext().
+  // was ever yielded.
+  //
+  // Iterates a snapshot rather than the live Kotlin iterator: every iteration path
+  // here (including forEach) lets the callback add() or delete(), which the web
+  // FontFaceSet allows but a live iterator answers with ConcurrentModificationException.
   *values(): IterableIterator<FontFace> {
-    const iter = this.native_.getIter();
-    while (iter.hasNext()) {
-      yield (FontFace as any).fromNative(iter.next());
+    const array = this.native_.getArray();
+    const count = array.length;
+    for (let i = 0; i < count; i++) {
+      yield (FontFace as any).fromNative(array[i]);
     }
   }
 
   forEach(callback: (value: FontFace, key: FontFace, parent: FontFaceSet) => void, thisArg?: any) {
-    // Iterating avoids getArray()'s Kotlin-side copy of the whole set plus a
-    // bridge crossing per element.
     for (const font of this.values()) {
       callback.call(thisArg, font, font, this);
     }

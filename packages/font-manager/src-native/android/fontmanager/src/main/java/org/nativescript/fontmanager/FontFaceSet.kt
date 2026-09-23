@@ -8,7 +8,12 @@ import kotlin.math.abs
 class FontFaceSet {
   private val fonts = mutableSetOf<FontFace>()
   private val fontsByFamily = mutableMapOf<String, MutableList<FontFace>>()
-  private val executor = FontExecutors.serial()
+  /**
+   * [load] resolves faces and loads them inline, which for a remote face means
+   * waiting on a download, so this runs on the I/O pool — on the shared one it
+   * would hold a thread that all other font work is queued behind.
+   */
+  private val executor = FontExecutors.serial(FontExecutors.io)
 
   enum class Status { Loading, Loaded }
 

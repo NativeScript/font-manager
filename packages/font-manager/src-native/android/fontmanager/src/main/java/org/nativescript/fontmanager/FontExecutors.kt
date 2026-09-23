@@ -7,17 +7,27 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 internal object FontExecutors {
-  /**
-   * One pool for all font work. Core threads are allowed to time out, so an app
-   * holding many [FontFace]s costs no threads at rest — previously each face owned
-   * a single-thread executor that lived for the process lifetime.
-   */
-  val shared: Executor = ThreadPoolExecutor(
-    2, 2, 30L, TimeUnit.SECONDS, LinkedBlockingQueue()
-  ) { r -> Thread(r, "ns-font-manager").apply { isDaemon = true } }
+  private fun pool(threads: Int, name: String): Executor = ThreadPoolExecutor(
+    threads, threads, 30L, TimeUnit.SECONDS, LinkedBlockingQueue()
+  ) { r -> Thread(r, name).apply { isDaemon = true } }
     .apply { allowCoreThreadTimeOut(true) }
 
-  fun serial(): Executor = SerialExecutor(shared)
+  /**
+   * One pool for all non-blocking font work. Core threads are allowed to time out,
+   * so an app holding many [FontFace]s costs no threads at rest — previously each
+   * face owned a single-thread executor that lived for the process lifetime.
+   */
+  val shared: Executor = pool(2, "ns-font-manager")
+
+  /**
+   * Separate pool for work that blocks on the network — a download parks its thread
+   * for the whole transfer. On [shared] two slow remote fonts occupied both of its
+   * threads and stalled every unrelated face, including local file loads; it is
+   * wider than [shared] for the same reason, since its threads are mostly waiting.
+   */
+  val io: Executor = pool(4, "ns-font-manager-io")
+
+  fun serial(delegate: Executor = shared): Executor = SerialExecutor(delegate)
 }
 
 /**
