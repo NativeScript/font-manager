@@ -4,10 +4,7 @@ import android.content.Context
 import android.graphics.Typeface
 import android.util.Log
 import androidx.core.content.res.ResourcesCompat
-import androidx.core.net.toUri
-import java.io.BufferedInputStream
 import java.io.File
-import java.io.FileOutputStream
 import java.net.URL
 import java.nio.ByteBuffer
 import java.util.UUID
@@ -126,11 +123,8 @@ class FontFace {
         val remote = URL(url)
         executors.execute {
           try {
-            val connection = remote.openConnection()
-            val stream = BufferedInputStream(connection.getInputStream())
-            val css = String(stream.readBytes())
+            val css = FontDownloads.readText(remote.toString())
             val matcher: Matcher = Constants.FONT_FACE_PATTERN.matcher(css)
-            stream.close()
             while (matcher.find()) {
               val match = matcher.group(1)
               match?.let { it ->
@@ -454,28 +448,9 @@ class FontFace {
   }
 
   private fun cacheData(context: Context, source: String): Typeface {
-    val nsFonts = File(context.filesDir, FONT_CACHE_DIR)
-    nsFonts.mkdir()
-    val uri = source.toUri()
-    if (uri.lastPathSegment == null) {
-      throw Error("Invalid source $source")
-    }
-    val path = File(nsFonts, uri.lastPathSegment!!)
-    if (path.exists() && path.length() > 0) {
-      val ret = handleFontPath(path)
-      fontPath = path.absolutePath
-      bumpVersionSource()
-      return ret
-    }
-    val url = URL(source)
-    val fs = FileOutputStream(path)
-    url.openStream().use { input ->
-      fs.use { output ->
-        input.copyTo(output)
-      }
-    }
-    val ret = handleFontPath(path)
-    fontPath = path.absolutePath
+    val file = FontDownloads.fetch(source, File(context.filesDir, FONT_CACHE_DIR))
+    val ret = handleFontPath(file)
+    fontPath = file.absolutePath
     bumpVersionSource()
     return ret
   }
