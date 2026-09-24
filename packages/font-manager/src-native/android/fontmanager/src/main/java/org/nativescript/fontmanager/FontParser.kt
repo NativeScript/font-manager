@@ -9,9 +9,7 @@ object FontParser {
 		val sizePx: Int,
 		val lineHeight: Float? = null,
 		val families: List<String>
-	) {
-		internal val familyKeys: List<String> by lazy { families.map { it.lowercase() } }
-	}
+	)
 
 	private val PARSE_FAILED = Any()
 	private val cache = LruMap<String, Any>(64)

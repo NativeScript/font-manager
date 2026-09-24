@@ -76,7 +76,7 @@ class FontFaceSet {
     }
     synchronized(lock) {
       if (!fonts.add(font)) return
-      fontsByFamily.getOrPut(font.familyKey) { mutableListOf() }.add(font)
+      fontsByFamily.getOrPut(font.fontFamily.lowercase()) { mutableListOf() }.add(font)
       reloadListeners[font] = listener
     }
     font.addOnReloadListener(listener)
@@ -85,7 +85,7 @@ class FontFaceSet {
   fun delete(font: FontFace) {
     val listener = synchronized(lock) {
       if (!fonts.remove(font)) return
-      val key = font.familyKey
+      val key = font.fontFamily.lowercase()
       fontsByFamily[key]?.let { list ->
         list.remove(font)
         if (list.isEmpty()) fontsByFamily.remove(key)
@@ -122,7 +122,8 @@ class FontFaceSet {
   private fun isGenericFamily(familyKey: String): Boolean = familyKey in GENERIC_FAMILIES
 
   private fun resolveFonts(parsed: FontParser.Result): List<FontFace> = synchronized(lock) {
-    for (familyKey in parsed.familyKeys) {
+    for (family in parsed.families) {
+      val familyKey = family.lowercase()
       val candidates = fontsByFamily[familyKey]
       if (!candidates.isNullOrEmpty()) {
         val best = candidates.minByOrNull { face ->

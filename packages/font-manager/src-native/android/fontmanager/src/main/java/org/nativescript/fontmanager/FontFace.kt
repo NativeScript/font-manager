@@ -62,7 +62,6 @@ class FontFace {
   var fontFamily: String
     private set
 
-  internal val familyKey: String by lazy { fontFamily.lowercase() }
   private var fontData: ByteBuffer? = null
   var fontPath: String? = null
     private set

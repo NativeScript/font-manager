@@ -124,11 +124,4 @@ class FontParserTest {
     assertNull(FontParser.parse("not-a-font"))
     assertNull(FontParser.parse("not-a-font"))
   }
-
-  @Test
-  fun `lowercases family keys once`() {
-    val parsed = FontParser.parse("16px RoBoTo")!!
-    assertEquals(listOf("roboto"), parsed.familyKeys)
-    assertSame(parsed.familyKeys, parsed.familyKeys)
-  }
 }
