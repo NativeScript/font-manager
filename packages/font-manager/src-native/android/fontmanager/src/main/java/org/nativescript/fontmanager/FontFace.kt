@@ -80,19 +80,24 @@ class FontFace {
   private var fontDescriptors: FontDescriptors
 
   companion object {
-    @JvmStatic
-    private val genericFontFamilies = mutableMapOf(
-      Pair("serif", "Noto Serif"),
-      Pair("sans-serif", "Roboto"),
-      Pair("monospace", "Roboto Mono, Droid Sans Mono"),
-      Pair("cursive", "Dancing Script, Noto Sans Cursive"),
-      Pair("fantasy", "Papyrus"),
-      Pair("system-ui", "Roboto"),
-      Pair("ui-serif", "Noto Serif"),
-      Pair("ui-sans-serif", "Roboto"),
-      Pair("ui-monospace", "Roboto Mono"),
-      Pair("ui-rounded", "Google Sans Rounded, Roboto"),
-      Pair("emoji", "Noto Emoji"),
+    /**
+     * CSS generic families mapped to the aliases Android's font config defines.
+     * Typeface.create takes one family name and silently returns the default for
+     * anything it does not know, which is what product names like "Noto Serif"
+     * and comma lists like "Dancing Script, Noto Sans Cursive" resolved to.
+     */
+    private val genericFontFamilies = mapOf(
+      "serif" to "serif",
+      "sans-serif" to "sans-serif",
+      "monospace" to "monospace",
+      "cursive" to "cursive",
+      "fantasy" to "casual",
+      "system-ui" to "sans-serif",
+      "ui-serif" to "serif",
+      "ui-sans-serif" to "sans-serif",
+      "ui-monospace" to "monospace",
+      "ui-rounded" to "sans-serif",
+      "emoji" to "sans-serif",
     )
 
     /** Downloads CSS and remote fonts, so it blocks — see [FontExecutors.io]. */
@@ -631,23 +636,7 @@ class FontFace {
           // Key tracks which branch produced the base typeface so the derived
           // weighted entry below cannot collide across families.
           val baseKey = "$fontFamily:$style"
-          var font = when (fontFamily) {
-            "serif" -> {
-              Typeface.SERIF
-            }
-
-            "sans-serif" -> {
-              Typeface.SANS_SERIF
-            }
-
-            "monospace" -> {
-              Typeface.MONOSPACE
-            }
-
-            else -> {
-              TypefaceCache.fromFamily(family, style)
-            }
-          }
+          var font = TypefaceCache.fromFamily(family, style)
 
           if (weight != FontWeight.Normal) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
