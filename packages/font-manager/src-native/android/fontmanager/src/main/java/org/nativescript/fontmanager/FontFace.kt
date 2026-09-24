@@ -9,6 +9,7 @@ import java.net.URL
 import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Matcher
 
@@ -155,13 +156,19 @@ class FontFace {
                 font.setFontDisplay(fontDisplay)
                 font.setFontStyle(fontStyle)
                 FontFaceSet.instance.add(font)
-                if (load) {
-                  font.loadOnCallerThread(context) {}
-                }
                 result.add(font)
               }
             }
-            FontExecutors.main.execute { callback(result, null) }
+            if (!load || result.isEmpty()) {
+              FontExecutors.main.execute { callback(result, null) }
+              return@execute
+            }
+            // Each face downloads on its own queue, so a stylesheet's fonts arrive
+            // in parallel instead of one after another on this one.
+            val remaining = AtomicInteger(result.size)
+            for (font in result) {
+              font.load(context) { if (remaining.decrementAndGet() == 0) callback(result, null) }
+            }
           } catch (e: Exception) {
             FontExecutors.main.execute { callback(result, e.localizedMessage) }
           }
@@ -541,15 +548,6 @@ class FontFace {
    */
   private val resolvesWithoutIo: Boolean
     get() = fontData == null && localOrRemoteSource == null && fontFamily != "math"
-
-  /** Runs the load on the calling thread, for callers that already own a worker. */
-  internal fun loadOnCallerThread(context: Context, callback: (error: String?) -> Unit) {
-    when (admit(callback)) {
-      Admission.AlreadyLoaded -> FontExecutors.main.execute { callback(null) }
-      Admission.Queued -> Unit
-      Admission.Claimed -> runLoad(context)
-    }
-  }
 
   /**
    * Nothing may escape without calling [finish]. An exception that got past the
