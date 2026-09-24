@@ -19,9 +19,9 @@ class FontFaceSet {
 
   enum class Status { Loading, Loaded }
 
-  @Volatile
-  var status = Status.Loaded
-    private set
+  /** Read from the load count, so no interleaving of loads can leave it stale. */
+  val status: Status
+    get() = if (pendingLoads.get() == 0) Status.Loaded else Status.Loading
 
   private val statusListeners = CopyOnWriteArrayList<(Status) -> Unit>()
   private val loadingListeners = CopyOnWriteArrayList<(FontFace) -> Unit>()
@@ -212,13 +212,11 @@ class FontFaceSet {
 
   private fun beginLoad() {
     pendingLoads.incrementAndGet()
-    status = Status.Loading
     notify { statusListeners.forEach { it(Status.Loading) } }
   }
 
   private fun endLoad() {
     if (pendingLoads.decrementAndGet() != 0) return
-    status = Status.Loaded
     val callbacks = synchronized(lock) {
       val pending = readyCallbacks.toList()
       readyCallbacks.clear()
