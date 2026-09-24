@@ -538,15 +538,20 @@ class FontFace {
    * already reported as loaded.
    */
   private fun finish(error: String?) {
+    var reload = false
     val queued = synchronized(lock) {
       if (!loadInFlight) return
       status = if (error == null) FontFaceStatus.Loaded else FontFaceStatus.Error
       loadInFlight = false
+      // A descriptor change made while this load ran was ignored by
+      // scheduleReloadIfNeeded, since the face was not yet Loaded.
+      reload = error == null && beginReloadLocked()
       val cbs = pendingLoadCallbacks.toList()
       pendingLoadCallbacks.clear()
       cbs
     }
     if (queued.isNotEmpty()) FontExecutors.main.execute { queued.forEach { it(error) } }
+    if (reload) postReload()
   }
 
   fun load(context: Context, callback: (error: String?) -> Unit) {
