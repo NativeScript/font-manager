@@ -552,9 +552,20 @@ class FontFace {
     when (admit(callback)) {
       Admission.AlreadyLoaded -> FontExecutors.main.execute { callback(null) }
       Admission.Queued -> Unit
-      Admission.Claimed -> executor.execute { runLoad(context) }
+      Admission.Claimed -> if (resolvesWithoutIo) runLoad(context) else executor.execute { runLoad(context) }
     }
   }
+
+  /**
+   * A source-less face resolves to a platform typeface through a constant or a
+   * cached Typeface.create, so it loads on the calling thread. Sending it through
+   * the pool made every system face arrive a main-thread turn late: a caller
+   * laying out on the main thread measured with the fallback typeface, then had
+   * to lay out again when the callback landed. "math" reads a font resource and
+   * keeps the pool.
+   */
+  private val resolvesWithoutIo: Boolean
+    get() = fontData == null && localOrRemoteSource == null && fontFamily != "math"
 
   /** Runs the load on the calling thread, for callers that already own a worker. */
   internal fun loadOnCallerThread(context: Context, callback: (error: String?) -> Unit) {
