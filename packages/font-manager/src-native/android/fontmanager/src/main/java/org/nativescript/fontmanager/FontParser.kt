@@ -70,12 +70,11 @@ object FontParser {
 				}
 
 				// Matched on the part before the slash so the `<size>/<line-height>`
-				// shorthand reaches the split below; `endsWith("px")` saw "16px/1.5"
-				// as a family name and left size null, failing the whole parse.
-				t.substringBefore("/").endsWith("px") -> {
+				// shorthand reaches the split below.
+				!readingFamilies && sizeInPx(t.substringBefore("/")) != null -> {
 					val parts = t.split("/")
 
-					size = parts[0].removeSuffix("px").toIntOrNull()
+					size = sizeInPx(parts[0])
 
 					if (parts.size > 1) {
 						lineHeight = parts[1].toFloatOrNull()
@@ -105,6 +104,26 @@ object FontParser {
 			// Copied because the Result is shared out of the parse cache.
 			families = families.toList()
 		)
+	}
+
+	private val LENGTH_REGEX = Regex("""^(\d*\.?\d+)(px|pt|em|rem|%)$""")
+
+	private val SIZE_KEYWORDS = mapOf(
+		"xx-small" to 9, "x-small" to 10, "small" to 13, "medium" to 16,
+		"large" to 18, "x-large" to 24, "xx-large" to 32, "xxx-large" to 48,
+	)
+
+	/** Relative units resolve against the 16px default, since there is no parent element to inherit from. */
+	private fun sizeInPx(token: String): Int? {
+		SIZE_KEYWORDS[token]?.let { return it }
+		val (value, unit) = LENGTH_REGEX.find(token)?.destructured ?: return null
+		val px = when (unit) {
+			"pt" -> value.toFloat() * 4 / 3
+			"em", "rem" -> value.toFloat() * 16
+			"%" -> value.toFloat() * 0.16f
+			else -> value.toFloat()
+		}
+		return Math.round(px)
 	}
 
 	private fun tokenize(input: String): List<String> {
