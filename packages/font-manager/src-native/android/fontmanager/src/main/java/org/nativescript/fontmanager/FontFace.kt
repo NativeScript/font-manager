@@ -14,6 +14,24 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Matcher
 
 
+data class FontSnapshot(
+  val id: String,
+  val version: Long,
+  val sourceHash: Long,
+  val matchingHash: Long,
+  val fontFamily: String,
+  val weight: FontWeight,
+  val style: FontStyle,
+  val rawData: ByteArray?
+) {
+  override fun equals(other: Any?): Boolean {
+    if (this === other) return true
+    if (other !is FontSnapshot) return false
+    return id == other.id && version == other.version
+  }
+  override fun hashCode(): Int = 31 * id.hashCode() + version.hashCode()
+}
+
 class FontFace {
   val id: String = UUID.randomUUID().toString()
 
@@ -461,6 +479,17 @@ class FontFace {
     _sourceHash = 0L
     _matchingHash = 0L
   }
+
+  fun snapshot(): FontSnapshot = FontSnapshot(
+    id = id,
+    version = version,
+    sourceHash = sourceHash,
+    matchingHash = matchingHash,
+    fontFamily = fontFamily,
+    weight = fontDescriptors.weight,
+    style = fontDescriptors.style,
+    rawData = rawData()
+  )
 
   @Volatile
   private var loadedFrom: Pair<FontWeight, FontStyle>? = null
