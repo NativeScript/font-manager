@@ -45,19 +45,14 @@ class FontFace {
   @Volatile private var _matchingHash: Long = 0L
 
   /**
-   * Computed on first read rather than at construction — hashing meant copying the
-   * whole buffer, which every `new FontFace(family, bytes)` paid even if the hash
-   * was never asked for.
+   * Computed on first read rather than at construction. ByteBuffer.hashCode reads
+   * the remaining bytes in place, without copying the font.
    */
   private val _dataHash: Long
     get() {
       var h = _dataHashValue
       if (h == 0L) {
-        h = fontData?.let { buffer ->
-          val bytes = ByteArray(buffer.remaining())
-          buffer.duplicate().get(bytes)
-          bytes.contentHashCode().toLong()
-        } ?: 0L
+        h = fontData?.duplicate()?.hashCode()?.toLong() ?: 0L
         if (h == 0L) h = -1L
         _dataHashValue = h
       }
