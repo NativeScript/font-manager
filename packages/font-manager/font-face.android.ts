@@ -62,46 +62,13 @@ export function importFontsFromCSS(url: string) {
   });
 }
 
-let bridge: {
-  FontFace: typeof org.nativescript.fontmanager.FontFace;
-  display: Record<'auto' | 'block' | 'fallback' | 'optional' | 'swap', org.nativescript.fontmanager.FontDisplay>;
-  status: Record<'loaded' | 'loading' | 'unloaded' | 'error', org.nativescript.fontmanager.FontFaceStatus>;
-  weight: Record<'thin' | 'extraLight' | 'light' | 'normal' | 'medium' | 'semiBold' | 'bold' | 'extraBold' | 'black', org.nativescript.fontmanager.FontWeight>;
-};
-
-function natives() {
-  if (!bridge) {
-    const ns = org.nativescript.fontmanager;
-    const D = ns.FontDisplay;
-    const S = ns.FontFaceStatus;
-    const W = ns.FontWeight;
-    bridge = {
-      FontFace: ns.FontFace,
-      display: { auto: D.Auto, block: D.Block, fallback: D.Fallback, optional: D.Optional, swap: D.Swap },
-      status: { loaded: S.Loaded, loading: S.Loading, unloaded: S.Unloaded, error: S.Error },
-      weight: {
-        thin: W.Thin,
-        extraLight: W.ExtraLight,
-        light: W.Light,
-        normal: W.Normal,
-        medium: W.Medium,
-        semiBold: W.SemiBold,
-        bold: W.Bold,
-        extraBold: W.ExtraBold,
-        black: W.Black,
-      },
-    };
-  }
-  return bridge;
-}
-
 const wrappers = new WeakMap<object, FontFace>();
 
 const ctor_ = Symbol('[[ctor]]');
 export class FontFace {
   native_: org.nativescript.fontmanager.FontFace;
   constructor(family: string, source?: string | TypedArray | ArrayBuffer, descriptors?: FontDescriptor, ctor?: symbol, native?: org.nativescript.fontmanager.FontFace) {
-    if (ctor === ctor_ && native instanceof natives().FontFace) {
+    if (ctor === ctor_ && native instanceof org.nativescript.fontmanager.FontFace) {
       this.native_ = native;
       return;
     }
@@ -223,17 +190,16 @@ export class FontFace {
   }
 
   get display() {
-    const d = natives().display;
     switch (this.native_.getDisplay()) {
-      case d.auto:
+      case org.nativescript.fontmanager.FontDisplay.Auto:
         return 'auto';
-      case d.block:
+      case org.nativescript.fontmanager.FontDisplay.Block:
         return 'block';
-      case d.fallback:
+      case org.nativescript.fontmanager.FontDisplay.Fallback:
         return 'fallback';
-      case d.optional:
+      case org.nativescript.fontmanager.FontDisplay.Optional:
         return 'optional';
-      case d.swap:
+      case org.nativescript.fontmanager.FontDisplay.Swap:
         return 'swap';
     }
   }
@@ -243,20 +209,18 @@ export class FontFace {
   }
 
   get family() {
-    return (this.family_ ??= this.native_.getFontFamily());
+    return this.native_.getFontFamily();
   }
-  private family_?: string;
 
   get status() {
-    const s = natives().status;
     switch (this.native_.getStatus()) {
-      case s.loaded:
+      case org.nativescript.fontmanager.FontFaceStatus.Loaded:
         return 'loaded';
-      case s.loading:
+      case org.nativescript.fontmanager.FontFaceStatus.Loading:
         return 'loading';
-      case s.unloaded:
+      case org.nativescript.fontmanager.FontFaceStatus.Unloaded:
         return 'unloaded';
-      case s.error:
+      case org.nativescript.fontmanager.FontFaceStatus.Error:
         return 'error';
     }
   }
@@ -270,25 +234,24 @@ export class FontFace {
   }
 
   get weight() {
-    const w = natives().weight;
     switch (this.native_.getWeight()) {
-      case w.thin:
+      case org.nativescript.fontmanager.FontWeight.Thin:
         return 'thin';
-      case w.extraLight:
+      case org.nativescript.fontmanager.FontWeight.ExtraLight:
         return 'extra-light';
-      case w.light:
+      case org.nativescript.fontmanager.FontWeight.Light:
         return 'light';
-      case w.normal:
+      case org.nativescript.fontmanager.FontWeight.Normal:
         return 'normal';
-      case w.medium:
+      case org.nativescript.fontmanager.FontWeight.Medium:
         return 'medium';
-      case w.semiBold:
+      case org.nativescript.fontmanager.FontWeight.SemiBold:
         return 'semi-bold';
-      case w.bold:
+      case org.nativescript.fontmanager.FontWeight.Bold:
         return 'bold';
-      case w.extraBold:
+      case org.nativescript.fontmanager.FontWeight.ExtraBold:
         return 'extra-bold';
-      case w.black:
+      case org.nativescript.fontmanager.FontWeight.Black:
         return 'black';
     }
   }
@@ -318,7 +281,7 @@ export class FontFace {
   }
 
   static fromNative(native: any): FontFace | null {
-    if (!(native instanceof natives().FontFace)) {
+    if (!(native instanceof org.nativescript.fontmanager.FontFace)) {
       return null;
     }
     const existing = wrappers.get(native);
