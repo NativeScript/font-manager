@@ -1,8 +1,7 @@
 import { knownFolders } from '@nativescript/core';
+import { fontSourcePath } from './font-source';
 
 export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array;
-
-const url_ex = /url\(([^)]+?)\.(woff2?|ttf|otf|eot)\)/;
 
 type stretchName = 'ultra-condensed' | 'extra-condensed' | 'condensed' | 'semi-condensed' | 'normal' | 'semi-expanded' | 'expanded' | 'extra-expanded' | 'ultra-expanded';
 type strechPercent = '50%' | '62.5%' | '75%' | '87.5%' | '100%' | '112.5%' | '125%' | '150%' | '200%' | '300%' | '400%';
@@ -59,7 +58,6 @@ export function importFontsFromCSS(url: string) {
 const ctor_ = Symbol('[[ctor]]');
 export class FontFace {
   native_: NSCFontFace;
-  private extension?: string;
   constructor(family: string, source?: string | TypedArray | ArrayBuffer, descriptors?: FontDescriptor, ctor?: symbol, native?: NSCFontFace) {
     if (ctor === ctor_ && native instanceof NSCFontFace) {
       this.native_ = native;
@@ -95,18 +93,11 @@ export class FontFace {
           this.native_ = NSCFontFace.alloc().initWithFamilyData(family, NSData.dataWithData(source as never));
         }
       } else if (typeof source === 'string') {
-        const matches = source.match(url_ex) ?? [];
-        this.extension = matches[2];
-        let path = matches[1];
-        if (path && path.startsWith('~/')) {
-          path = path.replace('~', knownFolders.currentApp().path);
-        }
-        const url = `${path}${this.extension ? '.' + this.extension : ''}`;
-
+        const url = fontSourcePath(source, knownFolders.currentApp().path);
         if (descriptor) {
-          this.native_ = NSCFontFace.alloc().initWithFontDescriptorSource(descriptor, url ?? source);
+          this.native_ = NSCFontFace.alloc().initWithFontDescriptorSource(descriptor, url);
         } else {
-          this.native_ = NSCFontFace.alloc().initWithFamilySource(family, url ?? source);
+          this.native_ = NSCFontFace.alloc().initWithFamilySource(family, url);
         }
       }
     } else {
@@ -229,6 +220,8 @@ export class FontFace {
         return 'loading';
       case NSCFontFaceStatus.Unloaded:
         return 'unloaded';
+      case NSCFontFaceStatus.Error:
+        return 'error';
     }
   }
 

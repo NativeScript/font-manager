@@ -1,21 +1,21 @@
 package org.nativescript.fontmanager
 
 import android.content.Context
-import android.graphics.Typeface
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 class FontFaceSet {
-  private val fonts = mutableSetOf<FontFace>()
+  private val lock = Any()
+  private val fonts = LinkedHashSet<FontFace>()
   private val fontsByFamily = mutableMapOf<String, MutableList<FontFace>>()
-  private val executor = Executors.newSingleThreadExecutor()
+  private val reloadListeners = mutableMapOf<FontFace, (FontFace, String?) -> Unit>()
 
   enum class Status { Loading, Loaded }
 
-  var status = Status.Loaded
-    private set
+  val status: Status
+    get() = if (pendingLoads.get() == 0) Status.Loaded else Status.Loading
 
   private val statusListeners = CopyOnWriteArrayList<(Status) -> Unit>()
   private val loadingListeners = CopyOnWriteArrayList<(FontFace) -> Unit>()
@@ -55,82 +55,76 @@ class FontFaceSet {
   }
 
   private val pendingLoads = AtomicInteger(0)
-  private val readyCallbacks = CopyOnWriteArrayList<(FontFaceSet) -> Unit>()
+  private val readyCallbacks = mutableListOf<(FontFaceSet) -> Unit>()
 
   val iter: Iterator<FontFace>
-    get() = fonts.iterator()
+    get() = array.iterator()
 
   val array: Array<FontFace>
-    get() = fonts.toTypedArray()
+    get() = synchronized(lock) { fonts.toTypedArray() }
 
   val size: Int
-    get() = fonts.size
-
-  private val reloadListeners: MutableMap<FontFace, (FontFace, String?) -> Unit> = mutableMapOf()
+    get() = synchronized(lock) { fonts.size }
 
   fun add(font: FontFace) {
-    val added = fonts.add(font)
-    fontsByFamily.getOrPut(font.fontFamily.lowercase()) { mutableListOf() }.add(font)
-
-    if (added) {
-      val listener: (FontFace, String?) -> Unit = { reloadedFace, error ->
-        if (error != null) {
-          loadingErrorListeners.forEach { it(reloadedFace, error) }
-          decrementPending()
-        } else {
-          loadingDoneListeners.forEach { it(reloadedFace) }
-          decrementPending()
-        }
+    val listener: (FontFace, String?) -> Unit = { reloadedFace, error ->
+      if (error != null) {
+        loadingErrorListeners.forEach { it(reloadedFace, error) }
+      } else {
+        loadingDoneListeners.forEach { it(reloadedFace) }
       }
-      font.addOnReloadListener(listener)
+    }
+    synchronized(lock) {
+      if (!fonts.add(font)) return
+      fontsByFamily.getOrPut(font.fontFamily.lowercase()) { mutableListOf() }.add(font)
       reloadListeners[font] = listener
     }
+    font.addOnReloadListener(listener)
   }
 
   fun delete(font: FontFace) {
-    if (!fonts.remove(font)) return
-    reloadListeners.remove(font)
-    val key = font.fontFamily.lowercase()
-    fontsByFamily[key]?.let { list ->
-      list.remove(font)
-      if (list.isEmpty()) fontsByFamily.remove(key)
+    val listener = synchronized(lock) {
+      if (!fonts.remove(font)) return
+      val key = font.fontFamily.lowercase()
+      fontsByFamily[key]?.let { list ->
+        list.remove(font)
+        if (list.isEmpty()) fontsByFamily.remove(key)
+      }
+      reloadListeners.remove(font)
     }
+    listener?.let { font.removeOnReloadListener(it) }
   }
 
   fun clear() {
-    for (face in fonts) reloadListeners.remove(face)
-    fonts.clear()
-    fontsByFamily.clear()
+    val detached = synchronized(lock) {
+      val entries = reloadListeners.toList()
+      reloadListeners.clear()
+      fonts.clear()
+      fontsByFamily.clear()
+      entries
+    }
+    for ((face, listener) in detached) face.removeOnReloadListener(listener)
   }
 
-  fun has(font: FontFace): Boolean = fonts.contains(font)
+  fun has(font: FontFace): Boolean = synchronized(lock) { fonts.contains(font) }
 
   /**
    * Calls [callback] immediately when there are no pending font loads,
    * otherwise waits until all current loads complete.
    */
   fun ready(callback: (FontFaceSet) -> Unit) {
-    if (pendingLoads.get() <= 0 && status == Status.Loaded) {
-      callback(this)
-    } else {
-      readyCallbacks.add(callback)
+    val idle = synchronized(lock) {
+      if (pendingLoads.get() == 0) true else { readyCallbacks.add(callback); false }
     }
+    if (idle) FontExecutors.main.execute { callback(this) }
   }
 
-  private fun resolveGeneric(family: String): Typeface? {
-    return when (family.lowercase()) {
-      "serif" -> Typeface.SERIF
-      "sans-serif" -> Typeface.SANS_SERIF
-      "monospace" -> Typeface.MONOSPACE
-      "cursive" -> Typeface.create("cursive", Typeface.NORMAL)
-      "fantasy" -> Typeface.create("fantasy", Typeface.NORMAL)
-      else -> null
-    }
-  }
+  private fun isGenericFamily(familyKey: String): Boolean = familyKey in GENERIC_FAMILIES
 
-  private fun resolveFonts(parsed: FontParser.Result): List<FontFace> {
+  private fun resolveFonts(parsed: FontParser.Result): List<FontFace> = synchronized(lock) {
     for (family in parsed.families) {
-      val candidates = fontsByFamily[family.lowercase()]
+      val familyKey = family.lowercase()
+      val candidates = fontsByFamily[familyKey]
       if (!candidates.isNullOrEmpty()) {
         val best = candidates.minByOrNull { face ->
           abs(face.weight.weight - parsed.weight.weight) +
@@ -138,15 +132,19 @@ class FontFaceSet {
         }
         if (best != null) return listOf(best)
       }
-      if (resolveGeneric(family) != null) return emptyList()
+      if (isGenericFamily(familyKey)) return emptyList()
     }
     return emptyList()
   }
 
+  /**
+   * True when rendering with [font] would not start a load, as the CSS Font Loading
+   * spec defines it: every matching face is loaded, or nothing in the set matches.
+   */
   fun check(font: String, text: String?): Boolean {
     return try {
       val parsed = FontParser.parse(font) ?: return false
-      resolveFonts(parsed).isNotEmpty()
+      resolveFonts(parsed).all { it.status == FontFaceStatus.Loaded }
     } catch (_: Exception) {
       false
     }
@@ -159,70 +157,69 @@ class FontFaceSet {
     text: String? = null,
     callback: ((List<FontFace>, String?) -> Unit)? = null
   ) {
-    executor.execute {
-      beginSetLoad()
-      try {
-        val parsed = FontParser.parse(font) ?: run {
-          endSetLoadError(null, "Failed to load font $font")
-          if (callback != null) {
-            callback(emptyList(), "Failed to load font $font")
-          }
-          return@execute
+    beginLoad()
+
+    val resolved = try {
+      FontParser.parse(font)?.let { resolveFonts(it) }
+    } catch (e: Exception) {
+      null
+    }
+
+    if (resolved.isNullOrEmpty()) {
+      val error = if (resolved == null) "Failed to load font $font" else null
+      endLoad()
+      if (callback != null) notify { callback(emptyList(), error) }
+      return
+    }
+
+    val remaining = AtomicInteger(resolved.size)
+    val firstError = AtomicReference<String?>(null)
+    for (face in resolved) {
+      notify { loadingListeners.forEach { it(face) } }
+      face.load(context) { faceError ->
+        if (faceError != null) {
+          firstError.compareAndSet(null, faceError)
+          loadingErrorListeners.forEach { it(face, faceError) }
+        } else {
+          loadingDoneListeners.forEach { it(face) }
         }
-        val resolved = resolveFonts(parsed)
-        for (face in resolved) {
-          loadingListeners.forEach { it(face) }
-          face.loadSync(context) { error ->
-            if (error != null) {
-              loadingErrorListeners.forEach { it(face, error) }
-            } else {
-              loadingDoneListeners.forEach { it(face) }
-            }
-          }
-        }
-        endSetLoadSuccess()
-        if (callback != null) {
-          callback(resolved, null)
-        }
-      } catch (e: Exception) {
-        endSetLoadError(null, e.localizedMessage)
-        if (callback != null) {
-          callback(emptyList(), e.localizedMessage)
+        if (remaining.decrementAndGet() == 0) {
+          endLoad()
+          callback?.invoke(resolved, firstError.get())
         }
       }
     }
   }
 
-  private fun beginSetLoad() {
+  private fun notify(block: () -> Unit) = FontExecutors.main.execute(block)
+
+  private fun beginLoad() {
     pendingLoads.incrementAndGet()
-    status = Status.Loading
-    statusListeners.forEach { it(status) }
+    notify { statusListeners.forEach { it(Status.Loading) } }
   }
 
-  private fun endSetLoadSuccess() {
-    decrementPending()
-  }
-
-  private fun endSetLoadError(face: FontFace?, error: String?) {
-    decrementPending()
-  }
-
-  private fun decrementPending() {
-    if (pendingLoads.decrementAndGet() <= 0) {
-      status = Status.Loaded
-      statusListeners.forEach { it(status) }
-      val callbacks = readyCallbacks.toList()
+  private fun endLoad() {
+    if (pendingLoads.decrementAndGet() != 0) return
+    val callbacks = synchronized(lock) {
+      val pending = readyCallbacks.toList()
       readyCallbacks.clear()
+      pending
+    }
+    notify {
+      statusListeners.forEach { it(Status.Loaded) }
       for (cb in callbacks) cb(this)
     }
   }
 
   fun forEach(block: (FontFace) -> Unit) {
-    for (face in fonts.toList()) block(face)
+    for (face in array) block(face)
   }
 
   companion object {
     @JvmStatic
     val instance = FontFaceSet()
+
+    private val GENERIC_FAMILIES =
+      setOf("serif", "sans-serif", "monospace", "cursive", "fantasy")
   }
 }

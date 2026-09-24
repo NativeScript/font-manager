@@ -42,7 +42,12 @@ export class FontFaceSet extends Observable {
   }
   private static _instance: FontFaceSet;
 
-  ready: Promise<void> = Promise.resolve();
+  /** Resolves once no loads are outstanding. */
+  get ready(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.native_.ready(() => resolve());
+    });
+  }
 
   get size(): number {
     return this.native_.size();

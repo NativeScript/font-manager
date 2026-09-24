@@ -1,7 +1,7 @@
 import { knownFolders, Utils } from '@nativescript/core';
+import { fontSourcePath } from './font-source';
 type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array;
 
-const url_ex = /url\(([^)]+?)\.(woff2?|ttf|otf|eot)\)/;
 declare const kotlin: any;
 type stretchName = 'ultra-condensed' | 'extra-condensed' | 'condensed' | 'semi-condensed' | 'normal' | 'semi-expanded' | 'expanded' | 'extra-expanded' | 'ultra-expanded';
 type strechPercent = '50%' | '62.5%' | '75%' | '87.5%' | '100%' | '112.5%' | '125%' | '150%' | '200%' | '300%' | '400%';
@@ -62,10 +62,11 @@ export function importFontsFromCSS(url: string) {
   });
 }
 
+const wrappers = new WeakMap<object, FontFace>();
+
 const ctor_ = Symbol('[[ctor]]');
 export class FontFace {
   native_: org.nativescript.fontmanager.FontFace;
-  private extension?: string;
   constructor(family: string, source?: string | TypedArray | ArrayBuffer, descriptors?: FontDescriptor, ctor?: symbol, native?: org.nativescript.fontmanager.FontFace) {
     if (ctor === ctor_ && native instanceof org.nativescript.fontmanager.FontFace) {
       this.native_ = native;
@@ -76,14 +77,7 @@ export class FontFace {
       if (ArrayBuffer.isView(source) || source instanceof ArrayBuffer) {
         this.native_ = new org.nativescript.fontmanager.FontFace(family, source as never);
       } else if (typeof source === 'string') {
-        const matches = source.match(url_ex) ?? [];
-        this.extension = matches[2];
-        let path = matches[1];
-        if (path && path.startsWith('~/')) {
-          path = path.replace('~', knownFolders.currentApp().path);
-        }
-        const url = `${path}${this.extension ? '.' + this.extension : ''}`;
-        this.native_ = new org.nativescript.fontmanager.FontFace(family, url ?? source ?? null);
+        this.native_ = new org.nativescript.fontmanager.FontFace(family, fontSourcePath(source, knownFolders.currentApp().path));
       }
     } else {
       this.native_ = new org.nativescript.fontmanager.FontFace(family);
@@ -106,6 +100,10 @@ export class FontFace {
       parts.push('}');
       this.native_.updateDescriptor(parts.join(' '));
     }
+
+    if (this.native_) {
+      wrappers.set(this.native_, this);
+    }
   }
 
   toJSON() {
@@ -122,10 +120,6 @@ export class FontFace {
 
   load() {
     return new Promise<void>((resolve, reject) => {
-      if (this.status === 'loaded') {
-        resolve();
-        return;
-      }
       const cb = new kotlin.jvm.functions.Function1({
         invoke(error) {
           if (error) {
@@ -226,6 +220,8 @@ export class FontFace {
         return 'loading';
       case org.nativescript.fontmanager.FontFaceStatus.Unloaded:
         return 'unloaded';
+      case org.nativescript.fontmanager.FontFaceStatus.Error:
+        return 'error';
     }
   }
 
@@ -285,11 +281,15 @@ export class FontFace {
   }
 
   static fromNative(native: any): FontFace | null {
-    if (native instanceof org.nativescript.fontmanager.FontFace) {
-      const font = new FontFace('', undefined, undefined, ctor_, native);
-      font.native_ = native;
-      return font;
+    if (!(native instanceof org.nativescript.fontmanager.FontFace)) {
+      return null;
     }
-    return null;
+    const existing = wrappers.get(native);
+    if (existing) {
+      return existing;
+    }
+    const font = new FontFace('', undefined, undefined, ctor_, native);
+    wrappers.set(native, font);
+    return font;
   }
 }

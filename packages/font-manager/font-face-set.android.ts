@@ -60,7 +60,17 @@ export class FontFaceSet extends Observable {
   }
   private static _instance: FontFaceSet;
 
-  ready: Promise<void> = Promise.resolve();
+  /** Resolves once no loads are outstanding. */
+  get ready(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const cb = new kotlin.jvm.functions.Function1({
+        invoke() {
+          resolve();
+        },
+      });
+      (this.native_ as any).ready(cb);
+    });
+  }
 
   get size(): number {
     return this.native_.getSize();
@@ -70,66 +80,26 @@ export class FontFaceSet extends Observable {
     this.native_.add((font as any).native_);
   }
 
-  *entries() {
-    const iter = this.native_.getIter();
-    let done = false;
-    return {
-      next() {
-        const object = iter.next();
-        let value: [FontFace, FontFace] | null = null;
-        if (object) {
-          const font = (FontFace as any).fromNative(object);
-          value = [font, font];
-        } else {
-          done = true;
-        }
-        return { value, done: done };
-      },
-    };
+  *entries(): IterableIterator<[FontFace, FontFace]> {
+    for (const font of this.values()) {
+      yield [font, font];
+    }
   }
 
-  *keys() {
-    const iter = this.native_.getIter();
-    let done = false;
-    return {
-      next() {
-        const object = iter.next();
-        let value: FontFace | null = null;
-        if (object) {
-          const font = (FontFace as any).fromNative(object);
-          value = font;
-        } else {
-          done = true;
-        }
-        return { value, done: done };
-      },
-    };
+  *keys(): IterableIterator<FontFace> {
+    yield* this.values();
   }
 
-  *values() {
-    const iter = this.native_.getIter();
-    let done = false;
-    return {
-      next() {
-        const object = iter.next();
-        let value: FontFace | null = null;
-        if (object) {
-          const font = (FontFace as any).fromNative(object);
-          value = font;
-        } else {
-          done = true;
-        }
-        return { value, done: done };
-      },
-    };
-  }
-
-  forEach(callback: (value: FontFace, key: FontFace, parent: FontFaceSet) => void, thisArg?: any) {
+  *values(): IterableIterator<FontFace> {
     const array = this.native_.getArray();
     const count = array.length;
     for (let i = 0; i < count; i++) {
-      const item = array[i];
-      const font = (FontFace as any).fromNative(item);
+      yield (FontFace as any).fromNative(array[i]);
+    }
+  }
+
+  forEach(callback: (value: FontFace, key: FontFace, parent: FontFaceSet) => void, thisArg?: any) {
+    for (const font of this.values()) {
       callback.call(thisArg, font, font, this);
     }
   }
@@ -156,7 +126,7 @@ export class FontFaceSet extends Observable {
             const count = fonts.size();
             const ret = new Array<FontFace>(count);
             for (let i = 0; i < count; i++) {
-              ret.push((FontFace as any).fromNative(fonts.get(i)));
+              ret[i] = (FontFace as any).fromNative(fonts.get(i));
             }
             resolve(ret);
           }

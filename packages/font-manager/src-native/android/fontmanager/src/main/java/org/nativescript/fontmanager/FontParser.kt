@@ -11,7 +11,19 @@ object FontParser {
 		val families: List<String>
 	)
 
+	private val PARSE_FAILED = Any()
+	private val cache = LruMap<String, Any>(64)
+
 	fun parse(input: String): Result? {
+		cache[input]?.let {
+			return if (it === PARSE_FAILED) null else it as Result
+		}
+		val result = parseUncached(input)
+		cache[input] = result ?: PARSE_FAILED
+		return result
+	}
+
+	private fun parseUncached(input: String): Result? {
 		val tokens = tokenize(input)
 
 		var style: FontStyle = FontStyle.Normal
@@ -49,10 +61,10 @@ object FontParser {
 					weight = FontWeight.from(t.toInt())
 				}
 
-				t.endsWith("px") -> {
+				!readingFamilies && sizeInPx(t.substringBefore("/")) != null -> {
 					val parts = t.split("/")
 
-					size = parts[0].removeSuffix("px").toIntOrNull()
+					size = sizeInPx(parts[0])
 
 					if (parts.size > 1) {
 						lineHeight = parts[1].toFloatOrNull()
@@ -79,8 +91,29 @@ object FontParser {
 			weight = weight,
 			sizePx = finalSize,
 			lineHeight = lineHeight,
-			families = families
+			families = families.toList()
 		)
+	}
+
+	private val LENGTH_REGEX = Regex("""^(\d*\.?\d+)(px|pt|em|rem|%)$""")
+
+	private const val DEFAULT_SIZE_PX = 16f
+
+	private val SIZE_KEYWORDS = mapOf(
+		"xx-small" to 9, "x-small" to 10, "small" to 13, "medium" to 16,
+		"large" to 18, "x-large" to 24, "xx-large" to 32, "xxx-large" to 48,
+	)
+
+	private fun sizeInPx(token: String): Int? {
+		SIZE_KEYWORDS[token]?.let { return it }
+		val (value, unit) = LENGTH_REGEX.find(token)?.destructured ?: return null
+		val px = when (unit) {
+			"pt" -> value.toFloat() * 4 / 3
+			"em", "rem" -> value.toFloat() * DEFAULT_SIZE_PX
+			"%" -> value.toFloat() / 100 * DEFAULT_SIZE_PX
+			else -> value.toFloat()
+		}
+		return Math.round(px)
 	}
 
 	private fun tokenize(input: String): List<String> {
