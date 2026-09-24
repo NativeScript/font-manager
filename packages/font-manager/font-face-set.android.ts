@@ -60,10 +60,7 @@ export class FontFaceSet extends Observable {
   }
   private static _instance: FontFaceSet;
 
-  /**
-   * Resolves once no loads are outstanding. This was hardcoded to an
-   * already-resolved promise, so awaiting it never actually waited.
-   */
+  /** Resolves once no loads are outstanding. */
   get ready(): Promise<void> {
     return new Promise<void>((resolve) => {
       const cb = new kotlin.jvm.functions.Function1({
@@ -93,12 +90,6 @@ export class FontFaceSet extends Observable {
     yield* this.values();
   }
 
-  // These were declared as generators but `return`ed an iterator object, so nothing
-  // was ever yielded.
-  //
-  // Iterates a snapshot rather than the live Kotlin iterator: every iteration path
-  // here (including forEach) lets the callback add() or delete(), which the web
-  // FontFaceSet allows but a live iterator answers with ConcurrentModificationException.
   *values(): IterableIterator<FontFace> {
     const array = this.native_.getArray();
     const count = array.length;

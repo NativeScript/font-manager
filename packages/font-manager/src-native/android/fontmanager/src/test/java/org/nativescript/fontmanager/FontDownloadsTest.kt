@@ -17,7 +17,6 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
-/** Answers each request with whatever [handler] writes for its path. */
 class TestServer(private val handler: (path: String, socket: Socket) -> Unit) : AutoCloseable {
   private val server = ServerSocket(0)
   val base = "http://127.0.0.1:${server.localPort}"

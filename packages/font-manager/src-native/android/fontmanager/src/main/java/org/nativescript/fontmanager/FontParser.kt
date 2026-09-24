@@ -10,18 +10,12 @@ object FontParser {
 		val lineHeight: Float? = null,
 		val families: List<String>
 	) {
-		/** Lowercased [families], computed once because Results are memoized. */
 		internal val familyKeys: List<String> by lazy { families.map { it.lowercase() } }
 	}
 
-	/** Sentinel so inputs that fail to parse are cached too, instead of re-tokenizing every call. */
 	private val PARSE_FAILED = Any()
 	private val cache = LruMap<String, Any>(64)
 
-	/**
-	 * [Result] is immutable, so parses of the same shorthand are memoized —
-	 * `check`/`load` are called per draw and were re-running the tokenizer each time.
-	 */
 	fun parse(input: String): Result? {
 		cache[input]?.let {
 			return if (it === PARSE_FAILED) null else it as Result
@@ -69,8 +63,6 @@ object FontParser {
 					weight = FontWeight.from(t.toInt())
 				}
 
-				// Matched on the part before the slash so the `<size>/<line-height>`
-				// shorthand reaches the split below.
 				!readingFamilies && sizeInPx(t.substringBefore("/")) != null -> {
 					val parts = t.split("/")
 
@@ -101,7 +93,6 @@ object FontParser {
 			weight = weight,
 			sizePx = finalSize,
 			lineHeight = lineHeight,
-			// Copied because the Result is shared out of the parse cache.
 			families = families.toList()
 		)
 	}
@@ -113,7 +104,6 @@ object FontParser {
 		"large" to 18, "x-large" to 24, "xx-large" to 32, "xxx-large" to 48,
 	)
 
-	/** Relative units resolve against the 16px default, since there is no parent element to inherit from. */
 	private fun sizeInPx(token: String): Int? {
 		SIZE_KEYWORDS[token]?.let { return it }
 		val (value, unit) = LENGTH_REGEX.find(token)?.destructured ?: return null

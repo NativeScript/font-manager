@@ -44,10 +44,6 @@ class FontFace {
     }
   @Volatile private var _matchingHash: Long = 0L
 
-  /**
-   * Computed on first read rather than at construction. ByteBuffer.hashCode reads
-   * the remaining bytes in place, without copying the font.
-   */
   private val _dataHash: Long
     get() {
       var h = _dataHashValue
@@ -66,7 +62,6 @@ class FontFace {
   var fontFamily: String
     private set
 
-  /** Lowercased [fontFamily], precomputed for the per-lookup map keys in [FontFaceSet]. */
   internal val familyKey: String by lazy { fontFamily.lowercase() }
   private var fontData: ByteBuffer? = null
   var fontPath: String? = null
@@ -78,8 +73,7 @@ class FontFace {
     /**
      * CSS generic families mapped to the aliases Android's font config defines.
      * Typeface.create takes one family name and silently returns the default for
-     * anything it does not know, which is what product names like "Noto Serif"
-     * and comma lists like "Dancing Script, Noto Sans Cursive" resolved to.
+     * anything it does not know.
      */
     private val genericFontFamilies = mapOf(
       "serif" to "serif",
@@ -95,7 +89,6 @@ class FontFace {
       "emoji" to "sans-serif",
     )
 
-    /** Downloads CSS and remote fonts, so it blocks — see [FontExecutors.io]. */
     @JvmStatic
     private val executors = FontExecutors.serial(FontExecutors.io)
 
@@ -163,8 +156,6 @@ class FontFace {
               FontExecutors.main.execute { callback(result, null) }
               return@execute
             }
-            // Each face downloads on its own queue, so a stylesheet's fonts arrive
-            // in parallel instead of one after another on this one.
             val remaining = AtomicInteger(result.size)
             for (font in result) {
               font.load(context) { if (remaining.decrementAndGet() == 0) callback(result, null) }
@@ -193,11 +184,6 @@ class FontFace {
 
   private val lock = Any()
 
-  /**
-   * A remote face blocks its thread for the whole download, so it runs on the I/O
-   * pool instead of the shared one. Lazy because the source is assigned by the
-   * constructor body, which runs after property initializers.
-   */
   private val executor: Executor by lazy {
     FontExecutors.serial(if (isRemoteSource) FontExecutors.io else FontExecutors.shared)
   }
@@ -477,12 +463,6 @@ class FontFace {
     _matchingHash = 0L
   }
 
-  /**
-   * What the loaded typeface was picked by. Only a source-less face chooses its
-   * typeface from weight and style; a file or download is the same font whatever
-   * its descriptors say, so for those this is null and a descriptor change never
-   * throws away a loaded font.
-   */
   @Volatile
   private var loadedFrom: Pair<FontWeight, FontStyle>? = null
 
@@ -514,15 +494,6 @@ class FontFace {
 
   private enum class Admission { AlreadyLoaded, Queued, Claimed }
 
-  /**
-   * Every load request goes through here, so at most one load per face is ever in
-   * flight and every caller is answered exactly once.
-   *
-   * Callers on hot paths (per-view paint access, per-node append) used to pile a
-   * duplicate runnable onto the executor on every check while a slow source was
-   * still downloading, and [FontFaceSet.load] reaching a face directly could
-   * start a second load alongside one already running.
-   */
   private fun admit(callback: (error: String?) -> Unit): Admission = synchronized(lock) {
     if (status == FontFaceStatus.Loaded) return Admission.AlreadyLoaded
     pendingLoadCallbacks.add(callback)
@@ -532,19 +503,12 @@ class FontFace {
     Admission.Claimed
   }
 
-  /**
-   * Publishes the result and answers every caller admitted since the load started.
-   * Only the first call per load wins, so a late failure cannot downgrade a result
-   * already reported as loaded.
-   */
   private fun finish(error: String?) {
     var reload = false
     val queued = synchronized(lock) {
       if (!loadInFlight) return
       status = if (error == null) FontFaceStatus.Loaded else FontFaceStatus.Error
       loadInFlight = false
-      // A descriptor change made while this load ran was ignored by
-      // scheduleReloadIfNeeded, since the face was not yet Loaded.
       reload = error == null && beginReloadLocked()
       val cbs = pendingLoadCallbacks.toList()
       pendingLoadCallbacks.clear()
@@ -562,22 +526,9 @@ class FontFace {
     }
   }
 
-  /**
-   * A source-less face resolves to a platform typeface through a constant or a
-   * cached Typeface.create, so it loads on the calling thread. Sending it through
-   * the pool made every system face arrive a main-thread turn late: a caller
-   * laying out on the main thread measured with the fallback typeface, then had
-   * to lay out again when the callback landed. "math" reads a font resource and
-   * keeps the pool.
-   */
   private val resolvesWithoutIo: Boolean
     get() = fontData == null && localOrRemoteSource == null && fontFamily != "math"
 
-  /**
-   * Nothing may escape without calling [finish]. An exception that got past the
-   * inner handlers would otherwise leave the face claimed forever, stranding every
-   * queued callback and rejecting all later loads by silence.
-   */
   private fun runLoad(context: Context) {
     try {
       resolveAndFinish(context)
@@ -610,13 +561,6 @@ class FontFace {
       else -> {
         if (key != null) {
           val (weight, fontStyle) = key
-          // Source-less faces resolve through the system. Generic families map
-          // to their platform default; any other family is looked up by name
-          // and falls back to the system default when it is not installed
-          // (CSS font fallback semantics). Previously non-generic source-less
-          // faces fell through here without invoking the callback and with
-          // status stuck at Loading, so callers polling `font != null`
-          // re-posted a no-op load runnable on every check, forever.
           val family = genericFontFamilies[fontFamily] ?: fontFamily
           val style = if (weight.weight >= 600) {
             if (fontStyle is FontStyle.Italic) {
@@ -628,8 +572,6 @@ class FontFace {
             fontStyle.fontStyle
           }
 
-          // Key tracks which branch produced the base typeface so the derived
-          // weighted entry below cannot collide across families.
           val baseKey = "$fontFamily:$style"
           var font = TypefaceCache.fromFamily(family, style)
 
@@ -654,10 +596,6 @@ class FontFace {
 
     val source = localOrRemoteSource
     if (source == null) {
-      // In-memory sources are accepted by the constructors and surfaced by
-      // rawData(), but nothing here turns them into a Typeface. Report it instead
-      // of returning without finishing, which left status at Loading forever and
-      // grew pendingLoadCallbacks without bound on every retry.
       finish("Loading $fontFamily from in-memory data is not supported on Android")
       return
     }

@@ -8,15 +8,8 @@ import java.net.URLConnection
 import java.security.MessageDigest
 
 internal object FontDownloads {
-  /** A stalled server would otherwise hold one of the few I/O threads forever. */
   private const val TIMEOUT_MS = 15_000
 
-  /**
-   * Named by a hash of the whole URL, since the last path segment alone is shared
-   * by unrelated fonts (`a.com/font.ttf`, `b.com/font.ttf`). The body lands in a
-   * temp file that is renamed into place only once complete, so a file under the
-   * final name is always a whole font, even with concurrent or interrupted downloads.
-   */
   fun fetch(url: String, dir: File, timeoutMs: Int = TIMEOUT_MS): File {
     val extension = url.substringBefore('?').substringBefore('#').substringAfterLast('/').substringAfterLast('.', "")
     val name = sha1(url) + if (extension.isEmpty()) "" else ".$extension"

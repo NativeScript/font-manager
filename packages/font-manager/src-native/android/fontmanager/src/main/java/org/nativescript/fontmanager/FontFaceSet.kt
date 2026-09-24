@@ -7,11 +7,6 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 class FontFaceSet {
-  /**
-   * [add] and [delete] are called from JS while [load] reads the same maps on a pool
-   * thread, so every touch of this group is under [lock]. Reads that escape the set
-   * ([array], [iter], [forEach]) hand out a copy rather than a live view.
-   */
   private val lock = Any()
   private val fonts = LinkedHashSet<FontFace>()
   private val fontsByFamily = mutableMapOf<String, MutableList<FontFace>>()
@@ -19,7 +14,6 @@ class FontFaceSet {
 
   enum class Status { Loading, Loaded }
 
-  /** Read from the load count, so no interleaving of loads can leave it stale. */
   val status: Status
     get() = if (pendingLoads.get() == 0) Status.Loaded else Status.Loading
 
@@ -81,8 +75,6 @@ class FontFaceSet {
       }
     }
     synchronized(lock) {
-      // The family index used to be appended to unconditionally, so re-adding a
-      // face left a duplicate that delete() could not fully remove.
       if (!fonts.add(font)) return
       fontsByFamily.getOrPut(font.familyKey) { mutableListOf() }.add(font)
       reloadListeners[font] = listener
@@ -100,8 +92,6 @@ class FontFaceSet {
       }
       reloadListeners.remove(font)
     }
-    // Dropping the map entry alone left the face holding the listener, and through
-    // it this set, for the rest of the process.
     listener?.let { font.removeOnReloadListener(it) }
   }
 
@@ -123,18 +113,12 @@ class FontFaceSet {
    * otherwise waits until all current loads complete.
    */
   fun ready(callback: (FontFaceSet) -> Unit) {
-    // Registering and draining share [lock]: unsynchronized, a callback could be
-    // added just after the last load drained the list and never be called at all.
     val idle = synchronized(lock) {
       if (pendingLoads.get() == 0) true else { readyCallbacks.add(callback); false }
     }
     if (idle) FontExecutors.main.execute { callback(this) }
   }
 
-  /**
-   * Only membership matters here — the caller discards the typeface — so this no
-   * longer materializes one just to null-check it.
-   */
   private fun isGenericFamily(familyKey: String): Boolean = familyKey in GENERIC_FAMILIES
 
   private fun resolveFonts(parsed: FontParser.Result): List<FontFace> = synchronized(lock) {
@@ -180,9 +164,6 @@ class FontFaceSet {
       null
     }
 
-    // Parsing is memoized and resolution is a map lookup, so this no longer needs a
-    // thread of its own. The faces then load on their own executors in parallel,
-    // instead of one download at a time on a thread this set held for the duration.
     if (resolved.isNullOrEmpty()) {
       val error = if (resolved == null) "Failed to load font $font" else null
       endLoad()
@@ -201,8 +182,6 @@ class FontFaceSet {
         } else {
           loadingDoneListeners.forEach { it(face) }
         }
-        // The set is done only once every face is, so `ready` and the status
-        // listeners no longer report idle while a download is still running.
         if (remaining.decrementAndGet() == 0) {
           endLoad()
           callback?.invoke(resolved, firstError.get())
@@ -211,7 +190,6 @@ class FontFaceSet {
     }
   }
 
-  /** Face callbacks already arrive here, so this is inline on the main thread. */
   private fun notify(block: () -> Unit) = FontExecutors.main.execute(block)
 
   private fun beginLoad() {

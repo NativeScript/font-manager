@@ -62,12 +62,6 @@ export function importFontsFromCSS(url: string) {
   });
 }
 
-/**
- * Reading `org.nativescript.fontmanager.X.Y` crosses the bridge every time, so a
- * getter that switched over 9 enum constants cost 9 crossings per property read.
- * These resolve once, on first use — not at module load, since the runtime may not
- * have the classes bound yet.
- */
 let bridge: {
   FontFace: typeof org.nativescript.fontmanager.FontFace;
   display: Record<'auto' | 'block' | 'fallback' | 'optional' | 'swap', org.nativescript.fontmanager.FontDisplay>;
@@ -101,11 +95,6 @@ function natives() {
   return bridge;
 }
 
-/**
- * One JS wrapper per native face. Besides the allocation, this fixes identity:
- * iterating the set twice used to hand back different objects for the same face,
- * so `===` never matched.
- */
 const wrappers = new WeakMap<object, FontFace>();
 
 const ctor_ = Symbol('[[ctor]]');
@@ -145,8 +134,6 @@ export class FontFace {
       this.native_.updateDescriptor(parts.join(' '));
     }
 
-    // Registered here too, so a face handed back through fromNative (events,
-    // iteration) resolves to this same wrapper.
     if (this.native_) {
       wrappers.set(this.native_, this);
     }
@@ -256,7 +243,6 @@ export class FontFace {
   }
 
   get family() {
-    // Set once at construction on the native side, so it is worth not re-marshaling.
     return (this.family_ ??= this.native_.getFontFamily());
   }
   private family_?: string;
