@@ -2,6 +2,7 @@ package org.nativescript.fontmanager
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,5 +32,17 @@ class FontFaceSetTest {
       assertNull(error)
       assertEquals(FontFaceSet.Status.Loaded, set.status)
     }
+  }
+
+  @Test
+  fun checkIsTrueOnlyWhenUsingTheFontWouldNotStartALoad() {
+    set.add(FontFace("Pending", fontFile("check-pending.ttf").absolutePath))
+    val loaded = FontFace("serif")
+    assertNull(loaded.loadAndWait())
+    set.add(loaded)
+
+    assertFalse(set.check("16px Pending", null))
+    assertTrue(set.check("16px serif", null))
+    assertTrue(set.check("16px NoSuchFamily", null))
   }
 }

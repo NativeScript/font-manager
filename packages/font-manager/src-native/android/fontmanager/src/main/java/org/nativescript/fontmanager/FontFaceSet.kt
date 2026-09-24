@@ -152,10 +152,14 @@ class FontFaceSet {
     return emptyList()
   }
 
+  /**
+   * True when rendering with [font] would not start a load, as the CSS Font Loading
+   * spec defines it: every matching face is loaded, or nothing in the set matches.
+   */
   fun check(font: String, text: String?): Boolean {
     return try {
       val parsed = FontParser.parse(font) ?: return false
-      resolveFonts(parsed).isNotEmpty()
+      resolveFonts(parsed).all { it.status == FontFaceStatus.Loaded }
     } catch (_: Exception) {
       false
     }
