@@ -600,21 +600,11 @@ class FontFace {
             fontStyle.fontStyle
           }
 
-          val baseKey = "$fontFamily:$style"
-          var font = TypefaceCache.fromFamily(family, style)
-
-          if (weight != FontWeight.Normal) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-              val italic = fontStyle is FontStyle.Italic
-              font = TypefaceCache.weighted(
-                font,
-                baseKey,
-                weight.weight,
-                italic
-              )
-            }
+          this.font = if (weight != FontWeight.Normal && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            TypefaceCache.weighted(family, style, weight.weight, fontStyle is FontStyle.Italic)
+          } else {
+            TypefaceCache.fromFamily(family, style)
           }
-          this.font = font
           loadedFrom = key
           finish(null)
           return

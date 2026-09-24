@@ -43,8 +43,8 @@ internal object TypefaceCache {
   fun fromResource(resId: Int, create: () -> Typeface): Typeface =
     get("res:$resId", create)
 
-  fun weighted(base: Typeface, baseKey: String, weight: Int, italic: Boolean): Typeface =
-    get("weighted:$baseKey:$weight:$italic") { Typeface.create(base, weight, italic) }
+  fun weighted(family: String, style: Int, weight: Int, italic: Boolean): Typeface =
+    get("weighted:$family:$style:$weight:$italic") { Typeface.create(fromFamily(family, style), weight, italic) }
 
   fun clear() = cache.clear()
 }

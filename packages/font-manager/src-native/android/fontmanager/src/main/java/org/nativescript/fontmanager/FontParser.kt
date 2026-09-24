@@ -97,6 +97,8 @@ object FontParser {
 
 	private val LENGTH_REGEX = Regex("""^(\d*\.?\d+)(px|pt|em|rem|%)$""")
 
+	private const val DEFAULT_SIZE_PX = 16f
+
 	private val SIZE_KEYWORDS = mapOf(
 		"xx-small" to 9, "x-small" to 10, "small" to 13, "medium" to 16,
 		"large" to 18, "x-large" to 24, "xx-large" to 32, "xxx-large" to 48,
@@ -107,8 +109,8 @@ object FontParser {
 		val (value, unit) = LENGTH_REGEX.find(token)?.destructured ?: return null
 		val px = when (unit) {
 			"pt" -> value.toFloat() * 4 / 3
-			"em", "rem" -> value.toFloat() * 16
-			"%" -> value.toFloat() * 0.16f
+			"em", "rem" -> value.toFloat() * DEFAULT_SIZE_PX
+			"%" -> value.toFloat() / 100 * DEFAULT_SIZE_PX
 			else -> value.toFloat()
 		}
 		return Math.round(px)
