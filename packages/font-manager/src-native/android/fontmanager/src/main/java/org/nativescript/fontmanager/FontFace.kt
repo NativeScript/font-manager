@@ -477,13 +477,32 @@ class FontFace {
     _matchingHash = 0L
   }
 
+  /**
+   * What the loaded typeface was picked by. Only a source-less face chooses its
+   * typeface from weight and style; a file or download is the same font whatever
+   * its descriptors say, so for those this is null and a descriptor change never
+   * throws away a loaded font.
+   */
+  @Volatile
+  private var loadedFrom: Pair<FontWeight, FontStyle>? = null
+
+  private fun resolutionKey(): Pair<FontWeight, FontStyle>? =
+    if (fontData == null && localOrRemoteSource == null) fontDescriptors.weight to fontDescriptors.style else null
+
   private fun scheduleReloadIfNeeded() {
     bumpVersion()
-    synchronized(lock) {
-      if (status != FontFaceStatus.Loaded || reloadPending) return
-      reloadPending = true
-      status = FontFaceStatus.Unloaded
-    }
+    val reload = synchronized(lock) { status == FontFaceStatus.Loaded && beginReloadLocked() }
+    if (reload) postReload()
+  }
+
+  private fun beginReloadLocked(): Boolean {
+    if (reloadPending || resolutionKey() == loadedFrom) return false
+    reloadPending = true
+    status = FontFaceStatus.Unloaded
+    return true
+  }
+
+  private fun postReload() {
     executor.execute {
       synchronized(lock) { reloadPending = false }
       FontExecutors.main.execute { reloadListeners.forEach { it(this, null) } }
@@ -564,11 +583,12 @@ class FontFace {
   }
 
   private fun resolveAndFinish(context: Context) {
+    val key = resolutionKey()
     // todo handle "fangsong"
     when (fontFamily) {
       "math" -> {
         val font = try {
-          val resId = getMathFontPath(fontDescriptors.weight.weight)
+          val resId = getMathFontPath(key!!.first.weight)
           TypefaceCache.fromResource(resId) {
             ResourcesCompat.getFont(context, resId) ?: Typeface.DEFAULT
           }
@@ -577,12 +597,14 @@ class FontFace {
           Typeface.DEFAULT
         }
         this.font = font
+        loadedFrom = key
         finish(null)
         return
       }
 
       else -> {
-        if (fontData == null && localOrRemoteSource == null) {
+        if (key != null) {
+          val (weight, fontStyle) = key
           // Source-less faces resolve through the system. Generic families map
           // to their platform default; any other family is looked up by name
           // and falls back to the system default when it is not installed
@@ -591,14 +613,14 @@ class FontFace {
           // status stuck at Loading, so callers polling `font != null`
           // re-posted a no-op load runnable on every check, forever.
           val family = genericFontFamilies[fontFamily] ?: fontFamily
-          val style = if (fontDescriptors.weight.weight >= 600) {
-            if (fontDescriptors.style is FontStyle.Italic) {
+          val style = if (weight.weight >= 600) {
+            if (fontStyle is FontStyle.Italic) {
               Typeface.BOLD_ITALIC
             } else {
               Typeface.BOLD
             }
           } else {
-            fontDescriptors.style.fontStyle
+            fontStyle.fontStyle
           }
 
           // Key tracks which branch produced the base typeface so the derived
@@ -622,18 +644,19 @@ class FontFace {
             }
           }
 
-          if (fontDescriptors.weight != FontWeight.Normal) {
+          if (weight != FontWeight.Normal) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-              val italic = fontDescriptors.style is FontStyle.Italic
+              val italic = fontStyle is FontStyle.Italic
               font = TypefaceCache.weighted(
                 font,
                 baseKey,
-                fontDescriptors.weight.weight,
+                weight.weight,
                 italic
               )
             }
           }
           this.font = font
+          loadedFrom = key
           finish(null)
           return
         }
