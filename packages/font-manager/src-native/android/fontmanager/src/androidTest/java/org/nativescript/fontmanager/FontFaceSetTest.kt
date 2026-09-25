@@ -6,9 +6,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(AndroidJUnit4::class)
 class FontFaceSetTest {
@@ -44,5 +46,24 @@ class FontFaceSetTest {
     assertFalse(set.check("16px Pending", null))
     assertTrue(set.check("16px serif", null))
     assertTrue(set.check("16px NoSuchFamily", null))
+  }
+
+  @Test
+  fun aDescriptorChangeFiresNoSetEvents() {
+    val face = FontFace("serif")
+    assertNull(face.loadAndWait())
+    val events = AtomicInteger()
+    set.addOnLoadingListener { events.incrementAndGet() }
+    set.addOnLoadingDoneListener { events.incrementAndGet() }
+    set.addOnStatusListener { events.incrementAndGet() }
+    set.add(face)
+
+    face.weight = FontWeight.Bold
+    face.setFontStyle("italic")
+    InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+    assertEquals(0, events.get())
+    assertEquals(FontFaceStatus.Loaded, face.status)
+    assertEquals(FontFaceSet.Status.Loaded, set.status)
   }
 }

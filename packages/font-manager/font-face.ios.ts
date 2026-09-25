@@ -23,7 +23,7 @@ interface FontDescriptor {
 
 export function loadFontsFromCSS(url: string) {
   return new Promise<any[]>((resolve, reject) => {
-    NSCFontResolver.shared().importFromRemoteWithURLLoadCompletion(url, false, (fonts, error) => {
+    NSCFontFace.importFromRemoteLoadCompletion(url, false, (fonts, error) => {
       const count = fonts.count;
       const ret = new Array(count);
       if (error) {
@@ -39,8 +39,8 @@ export function loadFontsFromCSS(url: string) {
 }
 
 export function importFontsFromCSS(url: string) {
-  return new Promise<any[]>((resolve, reject) => {
-    NSCFontResolver.shared().importFromRemoteWithURLLoadCompletion(url, true, (fonts, error) => {
+  return new Promise<FontFace[]>((resolve, reject) => {
+    NSCFontFace.importFromRemoteLoadCompletion(url, true, (fonts, error) => {
       const count = fonts.count;
       const ret = new Array(count);
       if (error) {
@@ -54,6 +54,8 @@ export function importFontsFromCSS(url: string) {
     });
   });
 }
+
+const wrappers = new WeakMap<object, FontFace>();
 
 const ctor_ = Symbol('[[ctor]]');
 export class FontFace {
@@ -106,6 +108,10 @@ export class FontFace {
       } else {
         this.native_ = NSCFontFace.alloc().initWithFamily(family);
       }
+    }
+
+    if (this.native_) {
+      wrappers.set(this.native_, this);
     }
   }
 
@@ -282,13 +288,19 @@ export class FontFace {
   }
 
   updateDescriptor(css: string) {
-    this.native_.fontDescriptors.update(css);
+    this.native_.updateDescriptor(css);
   }
 
   static fromNative(native: any): FontFace | null {
-    if (native instanceof NSCFontFace) {
-      return new FontFace('', undefined, undefined, ctor_, native);
+    if (!(native instanceof NSCFontFace)) {
+      return null;
     }
-    return null;
+    const existing = wrappers.get(native);
+    if (existing) {
+      return existing;
+    }
+    const font = new FontFace('', undefined, undefined, ctor_, native);
+    wrappers.set(native, font);
+    return font;
   }
 }

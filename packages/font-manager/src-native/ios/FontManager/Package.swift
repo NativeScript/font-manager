@@ -31,7 +31,8 @@ let package = Package(
         ),
         .testTarget(
             name: "FontManagerTests",
-            dependencies: ["FontManager"]
+            dependencies: ["FontManager"],
+            resources: [.copy("Fixtures")]
         ),
     ],
     swiftLanguageModes: [.v6]

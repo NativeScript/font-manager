@@ -10,7 +10,6 @@ class FontFaceSet {
   private val lock = Any()
   private val fonts = LinkedHashSet<FontFace>()
   private val fontsByFamily = mutableMapOf<String, MutableList<FontFace>>()
-  private val reloadListeners = mutableMapOf<FontFace, (FontFace, String?) -> Unit>()
 
   enum class Status { Loading, Loaded }
 
@@ -67,43 +66,28 @@ class FontFaceSet {
     get() = synchronized(lock) { fonts.size }
 
   fun add(font: FontFace) {
-    val listener: (FontFace, String?) -> Unit = { reloadedFace, error ->
-      if (error != null) {
-        loadingErrorListeners.forEach { it(reloadedFace, error) }
-      } else {
-        loadingDoneListeners.forEach { it(reloadedFace) }
-      }
-    }
     synchronized(lock) {
       if (!fonts.add(font)) return
       fontsByFamily.getOrPut(font.fontFamily.lowercase()) { mutableListOf() }.add(font)
-      reloadListeners[font] = listener
     }
-    font.addOnReloadListener(listener)
   }
 
   fun delete(font: FontFace) {
-    val listener = synchronized(lock) {
+    synchronized(lock) {
       if (!fonts.remove(font)) return
       val key = font.fontFamily.lowercase()
       fontsByFamily[key]?.let { list ->
         list.remove(font)
         if (list.isEmpty()) fontsByFamily.remove(key)
       }
-      reloadListeners.remove(font)
     }
-    listener?.let { font.removeOnReloadListener(it) }
   }
 
   fun clear() {
-    val detached = synchronized(lock) {
-      val entries = reloadListeners.toList()
-      reloadListeners.clear()
+    synchronized(lock) {
       fonts.clear()
       fontsByFamily.clear()
-      entries
     }
-    for ((face, listener) in detached) face.removeOnReloadListener(listener)
   }
 
   fun has(font: FontFace): Boolean = synchronized(lock) { fonts.contains(font) }

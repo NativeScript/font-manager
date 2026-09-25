@@ -196,10 +196,10 @@ class FontFace {
   fun addOnReloadListener(listener: (FontFace, String?) -> Unit) { reloadListeners.add(listener) }
   fun removeOnReloadListener(listener: (FontFace, String?) -> Unit) { reloadListeners.remove(listener) }
 
-  @Volatile
-  private var reloadPending = false
-
   private val lock = Any()
+
+  @Volatile
+  private var appContext: Context? = null
 
   private val executor: Executor by lazy {
     FontExecutors.serial(if (isRemoteSource) FontExecutors.io else FontExecutors.shared)
@@ -497,61 +497,95 @@ class FontFace {
   private fun resolutionKey(): Pair<FontWeight, FontStyle>? =
     if (fontData == null && localOrRemoteSource == null) fontDescriptors.weight to fontDescriptors.style else null
 
+  /** Per spec, stays loaded; system faces swap typeface in place. */
   private fun scheduleReloadIfNeeded() {
     bumpVersion()
-    val reload = synchronized(lock) { status == FontFaceStatus.Loaded && beginReloadLocked() }
-    if (reload) postReload()
+    val start = synchronized(lock) {
+      if (status != FontFaceStatus.Loaded || loadInFlight || repickInFlight || resolutionKey() == loadedFrom) {
+        false
+      } else {
+        repickInFlight = true
+        true
+      }
+    }
+    if (!start) return
+    if (resolvesWithoutIo) repick() else executor.execute { repick() }
   }
 
-  private fun beginReloadLocked(): Boolean {
-    if (reloadPending || resolutionKey() == loadedFrom) return false
-    reloadPending = true
-    status = FontFaceStatus.Unloaded
-    return true
-  }
-
-  private fun postReload() {
-    executor.execute {
-      synchronized(lock) { reloadPending = false }
-      FontExecutors.main.execute { reloadListeners.forEach { it(this, null) } }
+  /** Loads requested meanwhile wait for the new typeface. */
+  private fun repick() {
+    val context = appContext!!
+    while (true) {
+      val key = synchronized(lock) { resolutionKey() }
+      val typeface = key?.let { typefaceFor(context, it) }
+      var changed = false
+      val queued = synchronized(lock) {
+        if (resolutionKey() != key) return@synchronized null
+        if (key != null && key != loadedFrom) {
+          font = typeface
+          loadedFrom = key
+          changed = true
+        }
+        repickInFlight = false
+        pendingLoadCallbacks.toList().also { pendingLoadCallbacks.clear() }
+      } ?: continue
+      if (queued.isNotEmpty() || changed) {
+        FontExecutors.main.execute {
+          queued.forEach { it(null) }
+          if (changed) reloadListeners.forEach { it(this, null) }
+        }
+      }
+      return
     }
   }
 
   private val pendingLoadCallbacks = ArrayList<(error: String?) -> Unit>()
   private var loadInFlight = false
+  private var repickInFlight = false
 
   private enum class Admission { AlreadyLoaded, Queued, Claimed }
 
   private fun admit(callback: (error: String?) -> Unit): Admission = synchronized(lock) {
-    if (status == FontFaceStatus.Loaded) return Admission.AlreadyLoaded
+    if (status == FontFaceStatus.Loaded && !repickInFlight) return Admission.AlreadyLoaded
     pendingLoadCallbacks.add(callback)
-    if (loadInFlight) return Admission.Queued
+    if (loadInFlight || repickInFlight) return Admission.Queued
     loadInFlight = true
     status = FontFaceStatus.Loading
     Admission.Claimed
   }
 
   private fun finish(error: String?) {
-    var reload = false
     val queued = synchronized(lock) {
       if (!loadInFlight) return
-      status = if (error == null) FontFaceStatus.Loaded else FontFaceStatus.Error
-      loadInFlight = false
-      reload = error == null && beginReloadLocked()
-      val cbs = pendingLoadCallbacks.toList()
-      pendingLoadCallbacks.clear()
-      cbs
+      // Descriptors changed mid-load: resolve again.
+      if (error == null && resolutionKey() != loadedFrom) {
+        null
+      } else {
+        status = if (error == null) FontFaceStatus.Loaded else FontFaceStatus.Error
+        loadInFlight = false
+        val cbs = pendingLoadCallbacks.toList()
+        pendingLoadCallbacks.clear()
+        cbs
+      }
+    }
+    if (queued == null) {
+      startLoad(appContext!!)
+      return
     }
     if (queued.isNotEmpty()) FontExecutors.main.execute { queued.forEach { it(error) } }
-    if (reload) postReload()
   }
 
   fun load(context: Context, callback: (error: String?) -> Unit) {
+    appContext = context.applicationContext ?: context
     when (admit(callback)) {
       Admission.AlreadyLoaded -> FontExecutors.main.execute { callback(null) }
       Admission.Queued -> Unit
-      Admission.Claimed -> if (resolvesWithoutIo) runLoad(context) else executor.execute { runLoad(context) }
+      Admission.Claimed -> startLoad(context)
     }
+  }
+
+  private fun startLoad(context: Context) {
+    if (resolvesWithoutIo) runLoad(context) else executor.execute { runLoad(context) }
   }
 
   private val resolvesWithoutIo: Boolean
@@ -566,50 +600,46 @@ class FontFace {
     }
   }
 
-  private fun resolveAndFinish(context: Context) {
-    val key = resolutionKey()
+  private fun typefaceFor(context: Context, key: Pair<FontWeight, FontStyle>): Typeface {
+    val (weight, fontStyle) = key
     // todo handle "fangsong"
-    when (fontFamily) {
-      "math" -> {
-        val font = try {
-          val resId = getMathFontPath(key!!.first.weight)
-          TypefaceCache.fromResource(resId) {
-            ResourcesCompat.getFont(context, resId) ?: Typeface.DEFAULT
-          }
-        } catch (e: Exception) {
-          Log.w("JS", "Failed to get $fontFamily font falling back to the system default")
-          Typeface.DEFAULT
+    if (fontFamily == "math") {
+      return try {
+        val resId = getMathFontPath(weight.weight)
+        TypefaceCache.fromResource(resId) {
+          ResourcesCompat.getFont(context, resId) ?: Typeface.DEFAULT
         }
-        this.font = font
-        loadedFrom = key
-        finish(null)
-        return
+      } catch (e: Exception) {
+        Log.w("JS", "Failed to get $fontFamily font falling back to the system default")
+        Typeface.DEFAULT
       }
+    }
 
-      else -> {
-        if (key != null) {
-          val (weight, fontStyle) = key
-          val family = genericFontFamilies[fontFamily] ?: fontFamily
-          val style = if (weight.weight >= 600) {
-            if (fontStyle is FontStyle.Italic) {
-              Typeface.BOLD_ITALIC
-            } else {
-              Typeface.BOLD
-            }
-          } else {
-            fontStyle.fontStyle
-          }
-
-          this.font = if (weight != FontWeight.Normal && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-            TypefaceCache.weighted(family, style, weight.weight, fontStyle is FontStyle.Italic)
-          } else {
-            TypefaceCache.fromFamily(family, style)
-          }
-          loadedFrom = key
-          finish(null)
-          return
-        }
+    val family = genericFontFamilies[fontFamily] ?: fontFamily
+    val style = if (weight.weight >= 600) {
+      if (fontStyle is FontStyle.Italic) {
+        Typeface.BOLD_ITALIC
+      } else {
+        Typeface.BOLD
       }
+    } else {
+      fontStyle.fontStyle
+    }
+
+    return if (weight != FontWeight.Normal && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+      TypefaceCache.weighted(family, style, weight.weight, fontStyle is FontStyle.Italic)
+    } else {
+      TypefaceCache.fromFamily(family, style)
+    }
+  }
+
+  private fun resolveAndFinish(context: Context) {
+    val key = synchronized(lock) { resolutionKey() }
+    if (key != null) {
+      this.font = typefaceFor(context, key)
+      loadedFrom = key
+      finish(null)
+      return
     }
 
     val source = localOrRemoteSource

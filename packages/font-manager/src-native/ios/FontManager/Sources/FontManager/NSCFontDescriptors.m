@@ -159,8 +159,12 @@
 
     NSInteger intValue = trimmed.integerValue;
     if (intValue > 0) {
-        _weight = (NSCFontWeight)intValue;
+        _weight = NSCFontWeightFromValue(intValue);
     }
+}
+
+- (void)setWeight:(NSCFontWeight)weight {
+    _weight = NSCFontWeightFromValue(weight);
 }
 
 - (void)setFontStyleFromString:(NSString *)value {
