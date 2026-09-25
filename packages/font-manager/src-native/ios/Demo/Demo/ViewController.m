@@ -229,11 +229,12 @@
     __block NSString *reloadError = nil;
     dispatch_semaphore_t reloadSem = dispatch_semaphore_create(0);
 
-    face.onReload = ^(NSCFontFace *f, NSString *error) {
-        reloadFired = YES;
-        reloadError = error;
-        dispatch_semaphore_signal(reloadSem);
-    };
+  [face addReloadListener:^(NSCFontFace * f, NSString * error) {
+    reloadFired = YES;
+    reloadError = error;
+    dispatch_semaphore_signal(reloadSem);
+  }];
+  
 
     // Changing style triggers a reload
     [face setFontStyle:@"italic" angle:nil];
@@ -253,15 +254,21 @@
 
     __block NSInteger loadingCount = 0;
     __block NSInteger doneCount = 0;
+  
+  [set addOnLoadingListener:^(NSCFontFace *f) {
+    loadingCount++;
+  }];
+  
+  [set addOnLoadingDoneListener:^(NSCFontFace *f) {
+    doneCount++;
+    [self log:[NSString stringWithFormat:@"  onLoadingDone: %@", f.family]];
+  }];
+  
+  [set addOnLoadingErrorListener:^(NSCFontFace *f, NSString *error) {
+    [self log:[NSString stringWithFormat:@"  onLoadingError: %@ — %@", f.family, error]];
+  }];
 
-    set.onLoading = ^(NSCFontFace *f) { loadingCount++; };
-    set.onLoadingDone = ^(NSCFontFace *f) {
-        doneCount++;
-        [self log:[NSString stringWithFormat:@"  onLoadingDone: %@", f.family]];
-    };
-    set.onLoadingError = ^(NSCFontFace *f, NSString *error) {
-        [self log:[NSString stringWithFormat:@"  onLoadingError: %@ — %@", f.family, error]];
-    };
+
 
     NSCFontFace *mono = [[NSCFontFace alloc] initWithFamily:@"monospace"];
     [set add:mono];

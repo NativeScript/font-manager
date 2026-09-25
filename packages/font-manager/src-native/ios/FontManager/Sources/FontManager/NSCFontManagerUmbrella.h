@@ -1,5 +1,6 @@
 #import "NSCFontParser.h"
 #import "NSCFontTypes.h"
+#import "NSCFontStyle.h"
 #import "NSCFontDescriptors.h"
 #import "NSCFontFace.h"
 #import "NSCFontResolver.h"

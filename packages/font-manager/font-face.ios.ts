@@ -1,8 +1,7 @@
 import { knownFolders } from '@nativescript/core';
+import { fontSourcePath } from './font-source';
 
 export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array;
-
-const url_ex = /url\(([^)]+?)\.(woff2?|ttf|otf|eot)\)/;
 
 type stretchName = 'ultra-condensed' | 'extra-condensed' | 'condensed' | 'semi-condensed' | 'normal' | 'semi-expanded' | 'expanded' | 'extra-expanded' | 'ultra-expanded';
 type strechPercent = '50%' | '62.5%' | '75%' | '87.5%' | '100%' | '112.5%' | '125%' | '150%' | '200%' | '300%' | '400%';
@@ -24,7 +23,7 @@ interface FontDescriptor {
 
 export function loadFontsFromCSS(url: string) {
   return new Promise<any[]>((resolve, reject) => {
-    NSCFontResolver.shared().importFromRemoteWithURLLoadCompletion(url, false, (fonts, error) => {
+    NSCFontFace.importFromRemoteLoadCompletion(url, false, (fonts, error) => {
       const count = fonts.count;
       const ret = new Array(count);
       if (error) {
@@ -40,8 +39,8 @@ export function loadFontsFromCSS(url: string) {
 }
 
 export function importFontsFromCSS(url: string) {
-  return new Promise<any[]>((resolve, reject) => {
-    NSCFontResolver.shared().importFromRemoteWithURLLoadCompletion(url, true, (fonts, error) => {
+  return new Promise<FontFace[]>((resolve, reject) => {
+    NSCFontFace.importFromRemoteLoadCompletion(url, true, (fonts, error) => {
       const count = fonts.count;
       const ret = new Array(count);
       if (error) {
@@ -56,10 +55,11 @@ export function importFontsFromCSS(url: string) {
   });
 }
 
+const wrappers = new WeakMap<object, FontFace>();
+
 const ctor_ = Symbol('[[ctor]]');
 export class FontFace {
   native_: NSCFontFace;
-  private extension?: string;
   constructor(family: string, source?: string | TypedArray | ArrayBuffer, descriptors?: FontDescriptor, ctor?: symbol, native?: NSCFontFace) {
     if (ctor === ctor_ && native instanceof NSCFontFace) {
       this.native_ = native;
@@ -95,18 +95,11 @@ export class FontFace {
           this.native_ = NSCFontFace.alloc().initWithFamilyData(family, NSData.dataWithData(source as never));
         }
       } else if (typeof source === 'string') {
-        const matches = source.match(url_ex) ?? [];
-        this.extension = matches[2];
-        let path = matches[1];
-        if (path && path.startsWith('~/')) {
-          path = path.replace('~', knownFolders.currentApp().path);
-        }
-        const url = `${path}${this.extension ? '.' + this.extension : ''}`;
-
+        const url = fontSourcePath(source, knownFolders.currentApp().path);
         if (descriptor) {
-          this.native_ = NSCFontFace.alloc().initWithFontDescriptorSource(descriptor, url ?? source);
+          this.native_ = NSCFontFace.alloc().initWithFontDescriptorSource(descriptor, url);
         } else {
-          this.native_ = NSCFontFace.alloc().initWithFamilySource(family, url ?? source);
+          this.native_ = NSCFontFace.alloc().initWithFamilySource(family, url);
         }
       }
     } else {
@@ -115,6 +108,10 @@ export class FontFace {
       } else {
         this.native_ = NSCFontFace.alloc().initWithFamily(family);
       }
+    }
+
+    if (this.native_) {
+      wrappers.set(this.native_, this);
     }
   }
 
@@ -229,11 +226,13 @@ export class FontFace {
         return 'loading';
       case NSCFontFaceStatus.Unloaded:
         return 'unloaded';
+      case NSCFontFaceStatus.Error:
+        return 'error';
     }
   }
 
   get style() {
-    return this.native_.fontDescriptors.style;
+    return this.native_.fontDescriptors.style.toString();
   }
 
   set style(value: string) {
@@ -289,13 +288,19 @@ export class FontFace {
   }
 
   updateDescriptor(css: string) {
-    this.native_.fontDescriptors.update(css);
+    this.native_.updateDescriptor(css);
   }
 
   static fromNative(native: any): FontFace | null {
-    if (native instanceof NSCFontFace) {
-      return new FontFace('', undefined, undefined, ctor_, native);
+    if (!(native instanceof NSCFontFace)) {
+      return null;
     }
-    return null;
+    const existing = wrappers.get(native);
+    if (existing) {
+      return existing;
+    }
+    const font = new FontFace('', undefined, undefined, ctor_, native);
+    wrappers.set(native, font);
+    return font;
   }
 }

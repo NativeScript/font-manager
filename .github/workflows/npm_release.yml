@@ -1,0 +1,117 @@
+# Publishes @nativescript/font-manager to npm from an existing SPM release tag,
+# so the packaged nativescript.config.ts always points at a resolvable
+# FontManager.xcframework release.
+#
+# Triggered automatically at the end of the SPM Release workflow, or manually
+# via workflow_dispatch.
+#
+# Authentication uses npm Trusted Publishing (OIDC) — no NPM_TOKEN required.
+# This mirrors the proven publish flow in the @nativescript/ios repo:
+#   * the job runs in the `npm-publish` environment, which MUST match the
+#     environment configured on the npm Trusted Publisher for this package
+#     (repo NativeScript/font-manager + workflow npm_release.yml + env
+#     npm-publish). Without the matching environment the OIDC token exchange is
+#     rejected and publish falls back to (missing) token auth -> 404/ENEEDAUTH.
+#   * npm is upgraded to 11.5.1 via corepack (Trusted Publishing needs >=11.5.1;
+#     `npm i -g npm@latest` corrupts the global install and drops bundled deps
+#     like sigstore — npm/cli#9722).
+#   * the .npmrc that setup-node writes is removed and NODE_AUTH_TOKEN cleared
+#     before publish so the empty token can't shadow the OIDC exchange.
+name: npm Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 1.0.12). Must match an existing SPM release tag. Defaults to packages/font-manager/package.json.'
+        required: false
+        type: string
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-publish # must match the npm Trusted Publisher environment
+    permissions:
+      contents: read
+      id-token: write # required for npm Trusted Publishing (OIDC) + provenance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(node -p "require('./packages/font-manager/package.json').version")"
+          fi
+          if ! git rev-parse -q --verify "refs/tags/$VERSION^{commit}" > /dev/null; then
+            echo "error: tag $VERSION not found — run the SPM Release workflow first" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        run: git checkout "refs/tags/${{ steps.version.outputs.version }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Update npm (required for OIDC trusted publishing)
+        run: |
+          corepack enable npm
+          corepack install -g npm@11.5.1
+          test "$(npm --version)" = "11.5.1"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify package.json matches release version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG_VERSION="$(node -p "require('./packages/font-manager/package.json').version")"
+          if [ "$PKG_VERSION" != "$VERSION" ]; then
+            echo "error: packages/font-manager/package.json is $PKG_VERSION but expected $VERSION" >&2
+            exit 1
+          fi
+
+      # build.all runs tools/scripts/build-finish.ts, which produces a
+      # ready-to-publish dist/packages/font-manager (cleaned package.json,
+      # publishing assets copied in).
+      - name: Build @nativescript/font-manager
+        run: npx nx run font-manager:build.all
+
+      # Publish the exact version from the release tag via OIDC. No token is
+      # used — the setup-node .npmrc and NODE_AUTH_TOKEN are cleared so npm
+      # performs the Trusted Publishing token exchange and generates provenance.
+      - name: Publish @nativescript/font-manager (OIDC trusted publishing)
+        working-directory: dist/packages/font-manager
+        env:
+          NODE_AUTH_TOKEN: ''
+        run: |
+          unset NODE_AUTH_TOKEN
+          if [ -n "${NPM_CONFIG_USERCONFIG:-}" ]; then
+            rm -f "$NPM_CONFIG_USERCONFIG"
+          fi
+          npm publish --access public --provenance
+
+      - name: Verify npm publish
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          for i in $(seq 1 10); do
+            if [ "$(npm view "@nativescript/font-manager@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "@nativescript/font-manager@$VERSION is live"
+              exit 0
+            fi
+            echo "not visible yet, retrying ($i/10)..."
+            sleep 15
+          done
+          echo "error: @nativescript/font-manager@$VERSION not visible on the registry" >&2
+          exit 1

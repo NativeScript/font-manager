@@ -23,7 +23,7 @@ typedef NS_ENUM(NSInteger, NSCFontFaceSetStatus) {
 
 @interface NSCFontFaceSet : NSObject
 
-@property (nonatomic, assign) NSCFontFaceSetStatus status;
+@property (nonatomic, readonly) NSCFontFaceSetStatus status;
 
 - (void)addOnStatusListener:(void (^)(NSCFontFaceSetStatus))listener;
 - (void)removeOnStatusListener:(void (^)(NSCFontFaceSetStatus))listener;
@@ -44,16 +44,14 @@ typedef NS_ENUM(NSInteger, NSCFontFaceSetStatus) {
 - (void)clear;
 - (BOOL)has:(NSCFontFace *)font;
 
+/// Per spec: YES unless a matching face is unloaded.
 - (BOOL)check:(NSString *)font text:(nullable NSString *)text;
 
 - (void)load:(NSString *)font
         text:(nullable NSString *)text
-    callback:(void(^)(NSArray<NSCFontFace *> *fonts, NSString * _Nullable error))callback;
+    callback:(nullable void(^)(NSArray<NSCFontFace *> *fonts, NSString * _Nullable error))callback;
 
-/**
- * Calls `callback` immediately if the set is already loaded (no pending
- * font loads), otherwise waits until all current loads complete.
- */
+/// Calls `callback` on the main thread once no loads are pending.
 - (void)ready:(void(^)(NSCFontFaceSet *set))callback;
 
 - (NSEnumerator *)iter;

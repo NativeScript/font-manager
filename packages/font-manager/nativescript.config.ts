@@ -6,7 +6,18 @@ export default {
       {
         name: 'FontManager',
         libs: ['FontManager'],
-        version: '1.0.0',
+        version: '1.0.16',
+        repositoryURL: 'https://github.com/NativeScript/font-manager.git',
+      },
+    ],
+  },
+  visionos: {
+    discardUncaughtJsExceptions: false,
+    SPMPackages: [
+      {
+        name: 'FontManager',
+        libs: ['FontManager'],
+        version: '1.0.12',
         repositoryURL: 'https://github.com/NativeScript/font-manager.git',
       },
     ],

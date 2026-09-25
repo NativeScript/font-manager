@@ -1,5 +1,7 @@
 #import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
 #import "NSCFontTypes.h"
+#import "NSCFontStyle.h"
 #import "NSCFontDescriptors.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -16,7 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 // Descriptor pass-throughs (mirrors Web FontFace API)
 @property (nonatomic) NSCFontDisplay display;
 @property (nonatomic) NSCFontWeight weight;
-@property (nonatomic, copy) NSString *style;
+@property (nonatomic, strong) NSCFontStyle *style;
 @property (nonatomic, copy) NSString *variant;
 @property (nonatomic, copy) NSString *stretch;
 @property (nonatomic, copy) NSString *unicodeRange;
@@ -27,13 +29,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *lineGapOverride;
 
 
-/**
- * Called after a descriptor-triggered reload completes.
- * `error` is nil on success. Use this to notify views that the font changed.
- */
+/// Called on the main thread when a descriptor change swaps in a different font.
 - (void)addReloadListener:(void (^)(NSCFontFace *, NSString *))listener;
 
 - (void)removeOnReloadListener:(void (^)(NSCFontFace *, NSString *))listener;
+
+- (void)removeAllReloadListeners;
 
 @property (nonatomic, strong) NSMutableArray<void (^)(NSCFontFace *face, NSString * _Nullable error)> *onReloadListeners;
 
@@ -45,6 +46,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithFontDescriptor:(NSCFontDescriptors *)fontDescriptor source:(nullable NSString *)source;
 - (instancetype)initWithFontDescriptor:(NSCFontDescriptors *)fontDescriptor data:(nullable NSData *)data;
 
+/// `callback` runs once, on the main thread.
 - (void)load:(void(^)(NSString * _Nullable error))callback;
 - (void)loadSync:(NSString * _Nullable * _Nullable)outError;
 
@@ -66,6 +68,22 @@ NS_ASSUME_NONNULL_BEGIN
  * local file fonts. Returns nil for generic system fonts.
  */
 - (nullable NSData *)rawData;
+
+#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
+/**
+ * Returns a UIFont at the given point size, or nil if the face has not been
+ * loaded yet. The font's weight and italic/oblique traits are applied via
+ * UIFontDescriptor so they survive dynamic-type scaling by the caller.
+ */
+- (nullable UIFont *)uiFontWithSize:(CGFloat)size;
+
+/**
+ * The UIFont for this face at the label font size, set when the face finishes
+ * loading. Nil until loaded. Rescale with -[UIFont fontWithSize:] as needed.
+ * Use `uiFontWithSize:` to get a scaled copy in a single call.
+ */
+@property (nonatomic, readonly, nullable) UIFont *uiFont;
+#endif
 
 - (void)updateDescriptor:(NSString *)value;
 - (void)updateDescriptorWithValue:(NSString *)value;

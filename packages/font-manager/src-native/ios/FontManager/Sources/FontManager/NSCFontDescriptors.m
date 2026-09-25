@@ -1,4 +1,5 @@
 #import "NSCFontDescriptors.h"
+#import "NSCFontStyle.h"
 #import "NSCFontRegex.h"
 
 @implementation NSCFontDescriptors
@@ -9,8 +10,7 @@
     if (self) {
         _weight = NSCFontWeightNormal;
         _family = [family copy];
-        _style = @"normal";
-        _obliqueAngle = nil;
+        _style = [NSCFontStyle normal];
         _variant = @"normal";
         _ascentOverride = @"normal";
         _descentOverride = @"normal";
@@ -159,29 +159,16 @@
 
     NSInteger intValue = trimmed.integerValue;
     if (intValue > 0) {
-        _weight = (NSCFontWeight)intValue;
+        _weight = NSCFontWeightFromValue(intValue);
     }
 }
 
+- (void)setWeight:(NSCFontWeight)weight {
+    _weight = NSCFontWeightFromValue(weight);
+}
+
 - (void)setFontStyleFromString:(NSString *)value {
-
-    NSString *trimmed = [[value lowercaseString]
-                         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-
-    if ([trimmed hasPrefix:@"oblique"]) {
-        _style = @"oblique";
-
-        NSString *rest = [trimmed substringFromIndex:@"oblique".length];
-        rest = [rest stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-
-        _obliqueAngle = rest.length > 0 ? rest : @"0deg";
-        return;
-    }
-
-    if ([trimmed isEqualToString:@"italic"] || [trimmed isEqualToString:@"normal"]) {
-        _style = trimmed;
-        _obliqueAngle = nil;
-    }
+    _style = [NSCFontStyle fromString:value];
 }
 
 - (void)setFontDisplayFromString:(NSString *)value {
