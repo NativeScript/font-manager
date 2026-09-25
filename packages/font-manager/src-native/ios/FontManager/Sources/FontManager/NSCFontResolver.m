@@ -20,10 +20,26 @@ static NSDictionary<NSString *, NSString *> *NSCGenericFontFamilies(void) {
     };
 }
 
+static const NSTimeInterval NSCFontRequestTimeout = 15;
+
+FOUNDATION_EXTERN void NSCLoadFaces(NSArray<NSCFontFace *> *faces, dispatch_block_t done);
+
+static NSError *NSCFontResolverError(NSInteger code, NSString *description) {
+    return [NSError errorWithDomain:@"FontResolver"
+                               code:code
+                           userInfo:@{NSLocalizedDescriptionKey: description}];
+}
+
+static BOOL NSCIsRemoteSource(NSString *src) {
+    NSString *scheme = [NSURL URLWithString:src].scheme.lowercaseString;
+    return [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
+}
+
 @interface NSCFontResolver ()
 
 @property(nonatomic, strong) NSCache *cgFontCache;
 @property(nonatomic, strong) dispatch_queue_t queue;
+@property(nonatomic, strong) NSURLSession *session;
 
 @end
 
@@ -43,6 +59,9 @@ static NSDictionary<NSString *, NSString *> *NSCGenericFontFamilies(void) {
         _cgFontCache = [[NSCache alloc] init];
         _queue = dispatch_queue_create("NSCFontResolver.queue",
                                        DISPATCH_QUEUE_CONCURRENT);
+        NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+        config.timeoutIntervalForRequest = NSCFontRequestTimeout;
+        _session = [NSURLSession sessionWithConfiguration:config];
     }
     return self;
 }
@@ -51,38 +70,26 @@ static NSDictionary<NSString *, NSString *> *NSCGenericFontFamilies(void) {
                           src:(NSString *)src
                    completion:(NSCFontResolverCompletion)completion {
 
-    dispatch_async(self.queue, ^{
+    if (src.length == 0) {
+        dispatch_async(self.queue, ^{
+            completion([self systemFontForFamily:[self resolveGenericFamily:family]], nil, nil);
+        });
+        return;
+    }
 
-        NSError *error = nil;
-        NSData *data = nil;
-        CGFontRef font = NULL;
-
-        NSString *resolvedFamily = [self resolveGenericFamily:family];
-
-        font = [self systemFontForFamily:resolvedFamily];
-
-        if (src.length > 0) {
-            data = [self loadFontDataFromURL:src error:&error];
-
-            if (!data) {
-                completion(NULL, NULL, error);
-                return;
-            }
-
-            font = [self registerFontFromData:data error:&error];
-
-            if (!font) {
-                completion(NULL, data, error);
-                return;
-            }
+    [self fetchFontData:src completion:^(NSData *data, NSError *error) {
+        if (!data) {
+            completion(NULL, nil, error);
+            return;
         }
-
+        NSError *registerError = nil;
+        CGFontRef font = [self registerFontFromData:data error:&registerError];
         if (!font) {
-            font = [self systemFontForFamily:resolvedFamily];
+            completion(NULL, data, registerError ?: NSCFontResolverError(3, @"Failed to create CGFont"));
+            return;
         }
-
         completion(font, data, nil);
-    });
+    }];
 }
 
 - (NSString *)resolveGenericFamily:(NSString *)family {
@@ -98,53 +105,95 @@ static NSDictionary<NSString *, NSString *> *NSCGenericFontFamilies(void) {
         font = [UIFont systemFontOfSize:16.0];
     }
 
-    return CGFontCreateWithFontName((__bridge CFStringRef)font.fontName);
+    return (CGFontRef)CFAutorelease(CTFontCopyGraphicsFont((__bridge CTFontRef)font, NULL));
+}
+
+- (void)fetchFontData:(NSString *)src completion:(void (^)(NSData * _Nullable, NSError * _Nullable))completion {
+    if (NSCIsRemoteSource(src)) {
+        [self downloadFontData:src completion:completion];
+        return;
+    }
+    dispatch_async(self.queue, ^{
+        NSError *error = nil;
+        NSData *data = [self readLocalFontData:src error:&error];
+        completion(data, error);
+    });
+}
+
+- (void)downloadFontData:(NSString *)src completion:(void (^)(NSData * _Nullable, NSError * _Nullable))completion {
+    NSURL *url = [NSURL URLWithString:src];
+    [[self.session dataTaskWithURL:url
+                 completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSError *failure = error ?: [self validateDownload:data response:response src:src];
+        completion(failure ? nil : data, failure);
+    }] resume];
+}
+
+- (nullable NSError *)validateDownload:(NSData *)data response:(NSURLResponse *)response src:(NSString *)src {
+    if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+        NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+        if (http.statusCode < 200 || http.statusCode >= 300) {
+            return NSCFontResolverError(4, [NSString stringWithFormat:@"Download of %@ failed with HTTP %ld",
+                                            src, (long)http.statusCode]);
+        }
+        // Encoded responses announce the encoded length.
+        NSString *encoding = [http valueForHTTPHeaderField:@"Content-Encoding"];
+        BOOL identity = encoding.length == 0 || [encoding caseInsensitiveCompare:@"identity"] == NSOrderedSame;
+        long long expected = response.expectedContentLength;
+        if (identity && expected >= 0 && (long long)data.length != expected) {
+            return NSCFontResolverError(5, [NSString stringWithFormat:@"Download of %@ ended after %lu of %lld bytes",
+                                            src, (unsigned long)data.length, expected]);
+        }
+    }
+    if (data.length == 0) {
+        return NSCFontResolverError(6, [NSString stringWithFormat:@"Download of %@ was empty", src]);
+    }
+    return nil;
+}
+
+- (nullable NSData *)readLocalFontData:(NSString *)src error:(NSError **)error {
+    NSString *path = nil;
+    if ([src hasPrefix:@"file://"]) {
+        path = [src substringFromIndex:7];
+    } else if ([src hasPrefix:@"/"]) {
+        path = src;
+    }
+
+    if (!path) {
+        if (error) *error = NSCFontResolverError(2, @"Unsupported font scheme");
+        return nil;
+    }
+
+    NSError *readError = nil;
+    NSData *data = [NSData dataWithContentsOfFile:path options:0 error:&readError];
+    if (!data) {
+        NSString *decoded = path.stringByRemovingPercentEncoding;
+        if (decoded && ![decoded isEqualToString:path]) {
+            data = [NSData dataWithContentsOfFile:decoded options:0 error:nil];
+        }
+    }
+    if (!data && error) *error = readError;
+    return data;
 }
 
 - (NSData *)loadFontDataFromURL:(NSString *)src
                           error:(NSError **)error {
 
-    NSURL *url = [NSURL URLWithString:src];
-
-    if (!url) {
-        if (error) {
-            *error = [NSError errorWithDomain:@"FontResolver"
-                                         code:1
-                                     userInfo:@{
-                NSLocalizedDescriptionKey: @"Invalid font URL"
-            }];
-        }
-        return nil;
+    if (!NSCIsRemoteSource(src)) {
+        return [self readLocalFontData:src error:error];
     }
 
-    NSString *scheme = url.scheme.lowercaseString;
-
-    if ([scheme isEqualToString:@"http"] ||
-        [scheme isEqualToString:@"https"]) {
-
-        return [NSData dataWithContentsOfURL:url];
-    }
-
-    if ([scheme isEqualToString:@"file"] ||
-        [src hasPrefix:@"/"]) {
-
-        NSString *path = url.path;
-        return [NSData dataWithContentsOfFile:path];
-    }
-
-    if ([scheme isEqualToString:@"data"]) {
-        return nil;
-    }
-
-    if (error) {
-        *error = [NSError errorWithDomain:@"FontResolver"
-                                     code:2
-                                 userInfo:@{
-            NSLocalizedDescriptionKey: @"Unsupported font scheme"
-        }];
-    }
-
-    return nil;
+    __block NSData *result = nil;
+    __block NSError *failure = nil;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    [self downloadFontData:src completion:^(NSData *data, NSError *downloadError) {
+        result = data;
+        failure = downloadError;
+        dispatch_semaphore_signal(done);
+    }];
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    if (!result && error) *error = failure;
+    return result;
 }
 
 - (CGFontRef)registerFontFromData:(NSData *)data
@@ -152,14 +201,13 @@ static NSDictionary<NSString *, NSString *> *NSCGenericFontFamilies(void) {
 
     if (!data) return NULL;
 
-    NSString *cacheKey = [NSString stringWithFormat:@"%lu",
-                          (unsigned long)data.length];
+    // NSData compares by content.
+    NSData *cacheKey = [data copy];
 
-    CGFontRef cached = (__bridge CGFontRef)
-        [self.cgFontCache objectForKey:cacheKey];
+    id cached = [self.cgFontCache objectForKey:cacheKey];
 
     if (cached) {
-        return cached;
+        return (CGFontRef)CFAutorelease(CFRetain((__bridge CFTypeRef)cached));
     }
 
     CGDataProviderRef provider =
@@ -202,7 +250,7 @@ static NSDictionary<NSString *, NSString *> *NSCGenericFontFamilies(void) {
 
     [self.cgFontCache setObject:(__bridge id)font forKey:cacheKey];
 
-    return font;
+    return (CGFontRef)CFAutorelease(font);
 }
 
 
@@ -221,15 +269,14 @@ static NSDictionary<NSString *, NSString *> *NSCGenericFontFamilies(void) {
     }
 
     NSURLSessionDataTask *task =
-    [[NSURLSession sharedSession] dataTaskWithURL:nsURL
-                                completionHandler:^(NSData *data,
-                                                    NSURLResponse *response,
-                                                    NSError *error)
+    [self.session dataTaskWithURL:nsURL
+                completionHandler:^(NSData *data,
+                                    NSURLResponse *response,
+                                    NSError *error)
     {
-        if (error || !data) {
-            completion(nil, error ?: [NSError errorWithDomain:@"FontResolver"
-                                                          code:2
-                                                      userInfo:@{NSLocalizedDescriptionKey: @"No data"}]);
+        NSError *failure = error ?: [self validateDownload:data response:response src:url];
+        if (failure) {
+            completion(nil, failure);
             return;
         }
 
@@ -265,14 +312,14 @@ static NSDictionary<NSString *, NSString *> *NSCGenericFontFamilies(void) {
             NSString *fontDisplay = rule[@"font-display"];
             if (fontDisplay) [face setFontDisplay:fontDisplay];
 
-            if (load) {
-                [face load:^(NSString * _Nullable error) {}];
-            }
-
             [fonts addObject:face];
         }
 
-        completion(fonts, nil);
+        if (!load) {
+            completion(fonts, nil);
+            return;
+        }
+        NSCLoadFaces(fonts, ^{ completion(fonts, nil); });
     }];
 
     [task resume];

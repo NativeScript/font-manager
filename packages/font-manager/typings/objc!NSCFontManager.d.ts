@@ -177,7 +177,7 @@ declare class NSCFontFaceSet extends NSObject {
 
   static new(): NSCFontFaceSet; // inherited from NSObject
 
-  status: NSCFontFaceSetStatus;
+  readonly status: NSCFontFaceSetStatus;
 
   add(font: NSCFontFace): void;
 
@@ -332,5 +332,7 @@ declare const enum NSCFontWeight {
 }
 
 declare var NSCPropertyPattern: string;
+
+declare function NSCFontWeightFromValue(value: number): NSCFontWeight;
 
 declare function NSCUIFontWeight(weight: NSCFontWeight): number;

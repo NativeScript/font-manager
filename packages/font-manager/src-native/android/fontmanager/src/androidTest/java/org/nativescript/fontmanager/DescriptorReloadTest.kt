@@ -2,7 +2,9 @@ package org.nativescript.fontmanager
 
 import androidx.core.content.res.ResourcesCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -10,33 +12,49 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(AndroidJUnit4::class)
 class DescriptorReloadTest {
   @Test
-  fun aFileFaceStaysLoadedWhenItsDescriptorsChange() {
+  fun aFileFaceKeepsItsTypefaceWhenItsDescriptorsChange() {
     val face = FontFace("Stix", fontFile("reload-stix.ttf").absolutePath)
     assertNull(face.loadAndWait())
     val loaded = face.font
+    val reloads = AtomicInteger()
+    face.addOnReloadListener { _, _ -> reloads.incrementAndGet() }
 
     face.display = FontDisplay.Swap
     face.weight = FontWeight.Bold
     face.setFontStyle("italic")
+    InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
     assertEquals(FontFaceStatus.Loaded, face.status)
-    assertEquals(loaded, face.font)
+    assertSame(loaded, face.font)
+    assertEquals(0, reloads.get())
   }
 
   @Test
-  fun aSystemFaceReloadsOnlyForChangesThatPickADifferentTypeface() {
+  fun aSystemFaceSwapsItsTypefaceOnlyForChangesThatPickADifferentOne() {
     val face = FontFace("serif")
     assertNull(face.loadAndWait())
+    val regular = face.font
+    val reloads = AtomicInteger()
+    face.addOnReloadListener { _, error ->
+      assertNull(error)
+      reloads.incrementAndGet()
+    }
 
     face.display = FontDisplay.Swap
     assertEquals(FontFaceStatus.Loaded, face.status)
+    assertSame(regular, face.font)
 
     face.weight = FontWeight.Bold
-    assertEquals(FontFaceStatus.Unloaded, face.status)
+    InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+    assertEquals(FontFaceStatus.Loaded, face.status)
+    assertNotSame(regular, face.font)
+    assertTrue(face.font!!.isBold)
+    assertEquals(1, reloads.get())
   }
 
   @Test

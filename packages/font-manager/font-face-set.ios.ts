@@ -57,66 +57,26 @@ export class FontFaceSet extends Observable {
     this.native_.add((font as any).native_);
   }
 
-  *entries() {
-    const iter: NSEnumerator<NSCFontFace> = this.native_.iter();
-    let done = false;
-    return {
-      next() {
-        const object = iter.nextObject();
-        let value: [FontFace, FontFace] | null = null;
-        if (object) {
-          const font = (FontFace as any).fromNative(object);
-          value = [font, font];
-        } else {
-          done = true;
-        }
-        return { value, done: done };
-      },
-    };
+  *entries(): IterableIterator<[FontFace, FontFace]> {
+    for (const font of this.values()) {
+      yield [font, font];
+    }
   }
 
-  *keys() {
-    const iter: NSEnumerator<NSCFontFace> = this.native_.iter();
-    let done = false;
-    return {
-      next() {
-        const object = iter.nextObject();
-        let value: FontFace | null = null;
-        if (object) {
-          const font = (FontFace as any).fromNative(object);
-          value = font;
-        } else {
-          done = true;
-        }
-        return { value, done: done };
-      },
-    };
+  *keys(): IterableIterator<FontFace> {
+    yield* this.values();
   }
 
-  *values() {
-    const iter: NSEnumerator<NSCFontFace> = this.native_.iter();
-    let done = false;
-    return {
-      next() {
-        const object = iter.nextObject();
-        let value: FontFace | null = null;
-        if (object) {
-          const font = (FontFace as any).fromNative(object);
-          value = font;
-        } else {
-          done = true;
-        }
-        return { value, done: done };
-      },
-    };
-  }
-
-  forEach(callback: (value: FontFace, key: FontFace, parent: FontFaceSet) => void, thisArg?: any) {
+  *values(): IterableIterator<FontFace> {
     const array = this.native_.array();
     const count = array.count;
     for (let i = 0; i < count; i++) {
-      const item = array.objectAtIndex(i);
-      const font = (FontFace as any).fromNative(item);
+      yield (FontFace as any).fromNative(array.objectAtIndex(i));
+    }
+  }
+
+  forEach(callback: (value: FontFace, key: FontFace, parent: FontFaceSet) => void, thisArg?: any) {
+    for (const font of this.values()) {
       callback.call(thisArg, font, font, this);
     }
   }

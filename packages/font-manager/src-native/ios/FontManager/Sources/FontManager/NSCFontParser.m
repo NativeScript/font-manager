@@ -1,5 +1,6 @@
 #import "NSCFontParser.h"
 #import "NSCFontStyle.h"
+#import "NSCFontTypes.h"
 
 @implementation NSCFontParseResult
 @end
@@ -16,6 +17,47 @@
                                                                  error:nil];
     });
     return regex;
+}
+
++ (NSRegularExpression *)lengthRegex {
+    static NSRegularExpression *regex;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        regex = [NSRegularExpression regularExpressionWithPattern:@"^(\\d*\\.?\\d+)(px|pt|em|rem|%)$"
+                                                          options:0
+                                                            error:nil];
+    });
+    return regex;
+}
+
+static const double NSCDefaultFontSizePx = 16;
+
+/// Size in px, or -1.
++ (NSInteger)sizeInPx:(NSString *)token {
+    static NSDictionary<NSString *, NSNumber *> *keywords;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        keywords = @{
+            @"xx-small": @9, @"x-small": @10, @"small": @13, @"medium": @16,
+            @"large": @18, @"x-large": @24, @"xx-large": @32, @"xxx-large": @48,
+        };
+    });
+    NSNumber *keyword = keywords[token];
+    if (keyword) return keyword.integerValue;
+
+    NSTextCheckingResult *match = [[self lengthRegex] firstMatchInString:token options:0 range:NSMakeRange(0, token.length)];
+    if (!match) return -1;
+    double value = [token substringWithRange:[match rangeAtIndex:1]].doubleValue;
+    NSString *unit = [token substringWithRange:[match rangeAtIndex:2]];
+    double px = value;
+    if ([unit isEqualToString:@"pt"]) {
+        px = value * 4 / 3;
+    } else if ([unit isEqualToString:@"em"] || [unit isEqualToString:@"rem"]) {
+        px = value * NSCDefaultFontSizePx;
+    } else if ([unit isEqualToString:@"%"]) {
+        px = value / 100 * NSCDefaultFontSizePx;
+    }
+    return (NSInteger)lround(px);
 }
 
 + (nullable NSCFontParseResult *)parse:(NSString *)input {
@@ -63,18 +105,15 @@
                 [token isEqualToString:[NSString stringWithFormat:@"%ld",
                                         (long)numericWeight]]) {
 
-                weight = numericWeight;
+                weight = NSCFontWeightFromValue(numericWeight);
 
-            } else if ([token hasSuffix:@"px"]) {
+            } else if (!readingFamilies &&
+                       [self sizeInPx:[token componentsSeparatedByString:@"/"].firstObject] >= 0) {
 
                 NSArray<NSString *> *parts =
                     [token componentsSeparatedByString:@"/"];
 
-                NSString *sizePart = parts.firstObject;
-                sizePart = [sizePart stringByReplacingOccurrencesOfString:@"px"
-                                                               withString:@""];
-
-                size = sizePart.integerValue;
+                size = [self sizeInPx:parts.firstObject];
 
                 if (parts.count > 1) {
                     lineHeight = @([parts[1] floatValue]);
