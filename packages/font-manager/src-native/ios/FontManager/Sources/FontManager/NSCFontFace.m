@@ -455,9 +455,21 @@ static inline CGFloat NSCDefaultLabelFontSize(void) {
     return styled ?: base;
 }
 
-// System/generic families; never nil.
+// System/generic families; never nil. Memoized: every NSCFontFace instance
+// pointed at the same family/traits/size (e.g. several "sans-serif" labels)
+// otherwise redoes this UIFontDescriptor/UIFont resolution independently.
 - (UIFont *)_uiFontFromFamily:(NSString *)family traits:(NSCFontTraits)traits size:(CGFloat)size {
     UIFontWeight w = NSCUIFontWeight(traits.weight);
+
+    static NSCache<NSString *, UIFont *> *resolvedFontCache;
+    static dispatch_once_t cacheOnce;
+    dispatch_once(&cacheOnce, ^{
+        resolvedFontCache = [NSCache new];
+        resolvedFontCache.countLimit = 256;
+    });
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%.3f|%d|%.2f", family, w, traits.italic, size];
+    UIFont *cached = [resolvedFontCache objectForKey:cacheKey];
+    if (cached) return cached;
 
     static NSDictionary<NSString *, UIFontDescriptorSystemDesign> *systemDesigns;
     static dispatch_once_t once;
@@ -491,7 +503,9 @@ static inline CGFloat NSCDefaultLabelFontSize(void) {
     if (!base) {
         base = [UIFont systemFontOfSize:size weight:w];
     }
-    return [self _applyItalic:traits.italic toFont:base size:size];
+    UIFont *result = [self _applyItalic:traits.italic toFont:base size:size];
+    [resolvedFontCache setObject:result forKey:cacheKey];
+    return result;
 }
 
 // Custom fonts, by PostScript name.
