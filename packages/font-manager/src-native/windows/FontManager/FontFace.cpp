@@ -6,6 +6,7 @@
 #include "CssFontParser.h"
 #include "FontResolver.h"
 #include <cwctype>
+#include <filesystem>
 
 namespace css = ::NativeScript::FontManager::css;
 namespace resolver = ::NativeScript::FontManager::resolver;
@@ -95,67 +96,106 @@ namespace winrt::NativeScript::FontManager::implementation
     {
         auto lifetime = get_strong();
 
-        if (Status() == fm::FontFaceStatus::Loaded) co_return hstring(L"");
-        m_status = static_cast<int32_t>(fm::FontFaceStatus::Loading);
+        std::shared_ptr<PendingLoad> pending;
+        bool owner = false;
+        {
+            std::lock_guard lock(m_loadMutex);
+            if (Status() != fm::FontFaceStatus::Loaded)
+            {
+                if (!m_pendingLoad)
+                {
+                    m_pendingLoad = std::make_shared<PendingLoad>();
+                    m_status = static_cast<int32_t>(fm::FontFaceStatus::Loading);
+                    owner = true;
+                }
+                pending = m_pendingLoad;
+            }
+        }
+        if (!pending) co_return hstring(L"");
 
+        // A load is already running: settle with its result instead of loading again.
+        if (!owner)
+        {
+            co_await resume_on_signal(pending->done.get());
+            co_return pending->error;
+        }
+
+        hstring error;
+        try { error = co_await LoadInternalAsync(); }
+        catch (hresult_error const& e) { error = e.message().empty() ? hstring(L"Failed to load font") : e.message(); }
+        catch (...) { error = L"Failed to load font"; }
+
+        m_status = static_cast<int32_t>(error.empty() ? fm::FontFaceStatus::Loaded : fm::FontFaceStatus::Error);
+        pending->error = error;
+        {
+            std::lock_guard lock(m_loadMutex);
+            m_pendingLoad = nullptr;
+        }
+        SetEvent(pending->done.get());
+        co_return error;
+    }
+
+    // Resolves the source to a font file, validates it and sets m_fontUri. Resolves to an error
+    // message (empty on success) or throws; LoadAsync owns m_status.
+    IAsyncOperation<hstring> FontFace::LoadInternalAsync()
+    {
         co_await resume_background();
 
         std::wstring family(m_descriptors.Family());
         std::wstring src(m_source);
+        std::wstring resolvedFamily, err;
 
-        // Data-only path: register the bytes directly (mirrors NSCFontFace _loadInternal data branch).
+        // Data-only path: persist the bytes, then validate the file (mirrors NSCFontFace
+        // _loadInternal data branch).
         if (m_data && src.empty())
         {
-            std::wstring resolvedFamily, err;
-            if (resolver::ValidateAndExtractFamily(m_data, resolvedFamily, err))
+            auto fileName = resolver::PersistFontData(m_data);
+            if (fileName.empty()) co_return hstring(L"Failed to register font");
+            auto path = resolver::FontCachePath(fileName);
+            if (!resolver::ValidateAndExtractFamilyFromFile(path, resolvedFamily, err))
             {
-                auto fileName = resolver::PersistFontData(m_data);
-                m_fontUri = BuildAppDataUri(fileName, resolvedFamily.empty() ? family : resolvedFamily);
-                m_status = static_cast<int32_t>(fm::FontFaceStatus::Loaded);
-                co_return hstring(L"");
+                std::error_code ec;
+                std::filesystem::remove(path, ec);
+                co_return hstring(err.empty() ? L"Failed to register font" : err);
             }
-            m_status = static_cast<int32_t>(fm::FontFaceStatus::Error);
-            co_return hstring(err.empty() ? L"Failed to register font" : err);
-        }
-
-        // No source and no data: a system/generic family — nothing to download.
-        if (src.empty())
-        {
-            m_status = static_cast<int32_t>(fm::FontFaceStatus::Loaded);
+            m_fontUri = BuildAppDataUri(fileName, resolvedFamily.empty() ? family : resolvedFamily);
             co_return hstring(L"");
         }
 
-        IBuffer buffer = co_await resolver::FetchFontDataAsync(hstring(src));
-        if (!buffer)
-        {
-            m_status = static_cast<int32_t>(fm::FontFaceStatus::Error);
-            co_return hstring(L"Failed to load font data");
-        }
+        // No source and no data: a system/generic family — nothing to download.
+        if (src.empty()) co_return hstring(L"");
 
-        std::wstring resolvedFamily, err;
-        if (!resolver::ValidateAndExtractFamily(buffer, resolvedFamily, err))
-        {
-            m_status = static_cast<int32_t>(fm::FontFaceStatus::Error);
-            co_return hstring(err.empty() ? L"Failed to register font" : err);
-        }
-
-        m_data = buffer;
-        std::wstring famSuffix = resolvedFamily.empty() ? family : resolvedFamily;
         std::wstring lowerSrc = ToLower(src);
-
-        if (StartsWith(lowerSrc, L"http://") || StartsWith(lowerSrc, L"https://"))
+        bool remote = StartsWith(lowerSrc, L"http://") || StartsWith(lowerSrc, L"https://");
+        std::wstring fileName, path;
+        if (remote)
         {
-            // Remote font: persist a local copy so it can be referenced by a ms-appdata URI.
-            auto fileName = resolver::PersistFontData(buffer);
-            m_fontUri = BuildAppDataUri(fileName, famSuffix);
+            // URL-keyed cached copy; throws with the download failure.
+            fileName = std::wstring(co_await resolver::DownloadFontAsync(hstring(src)));
+            path = resolver::FontCachePath(fileName);
         }
         else
         {
-            // Local file / ms-appx source is already addressable; just append the resolved family.
-            m_fontUri = hstring(src + L"#" + famSuffix);
+            // Validated in place, never read into memory.
+            path = std::wstring(co_await resolver::ResolveLocalFontPathAsync(hstring(src)));
+            if (path.empty()) co_return hstring(L"Failed to load font data");
         }
 
-        m_status = static_cast<int32_t>(fm::FontFaceStatus::Loaded);
+        if (!resolver::ValidateAndExtractFamilyFromFile(path, resolvedFamily, err))
+        {
+            // Drop an unusable download so the next load fetches it again (never a local source).
+            if (remote)
+            {
+                std::error_code ec;
+                std::filesystem::remove(path, ec);
+            }
+            co_return hstring(err.empty() ? L"Failed to register font" : err);
+        }
+
+        std::wstring famSuffix = resolvedFamily.empty() ? family : resolvedFamily;
+        // Remote fonts are referenced through their cached copy; a local file / ms-appx source is
+        // already addressable, so just append the resolved family.
+        m_fontUri = remote ? BuildAppDataUri(fileName, famSuffix) : hstring(src + L"#" + famSuffix);
         co_return hstring(L"");
     }
 
@@ -174,6 +214,7 @@ namespace winrt::NativeScript::FontManager::implementation
 
         auto rules = css::ParseFontFaceRules(css);
         std::vector<fm::FontFace> faces;
+        std::vector<IAsyncOperation<hstring>> loads;
         auto set = FontFaceSet::Instance();
 
         for (auto const& rule : rules)
@@ -192,9 +233,12 @@ namespace winrt::NativeScript::FontManager::implementation
             if (auto it = rule.find(L"font-display"); it != rule.end()) face.SetFontDisplay(hstring(it->second));
 
             set.Add(face);
-            if (load) co_await face.LoadAsync();
+            if (load) loads.push_back(face.LoadAsync());
             faces.push_back(face);
         }
+
+        // The loads run concurrently; each face reports its own failure through Status, as before.
+        for (auto& op : loads) co_await op;
 
         co_return single_threaded_vector(std::move(faces)).GetView();
     }

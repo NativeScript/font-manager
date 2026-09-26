@@ -1,5 +1,6 @@
 #include "pch.h"
 #include <iostream>
+#include <chrono>
 
 // Standalone native test harness for the NativeScript.FontManager C++/WinRT component. The
 // component is headless, so this console app exercises every code path directly (paralleling the
@@ -112,17 +113,72 @@ int wmain(int argc, wchar_t** argv)
     }
 
     // 6. Remote @font-face import (parse only; needs network). Optional.
+    std::wstring cssUrl = argc > 2 ? argv[2] : L"https://fonts.googleapis.com/css?family=Roboto:400,700";
     {
-        std::wstring url = argc > 2 ? argv[2] : L"https://fonts.googleapis.com/css?family=Roboto:400,700";
         try
         {
-            auto fonts = fmimpl::FontFace::ImportFromRemoteAsync(hstring(url), false).get();
+            auto fonts = fmimpl::FontFace::ImportFromRemoteAsync(hstring(cssUrl), false).get();
             check(fonts.Size() > 0, "FontFace.ImportFromRemoteAsync parses remote @font-face rules");
             std::wcout << L"      imported " << fonts.Size() << L" face(s)\n";
         }
         catch (hresult_error const& e)
         {
             std::wcout << L"[SKIP] remote import (network?): " << std::wstring(e.message()) << L"\n";
+        }
+    }
+
+    // 7. Remote import + load, twice: the second pass creates fresh faces for the same URLs, so it
+    // measures the URL-keyed download cache rather than the per-face Loaded short-circuit.
+    for (int pass = 1; pass <= 2; pass++)
+    {
+        try
+        {
+            auto start = std::chrono::steady_clock::now();
+            auto fonts = fmimpl::FontFace::ImportFromRemoteAsync(hstring(cssUrl), true).get();
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+            bool allLoaded = fonts.Size() > 0;
+            for (auto const& face : fonts)
+            {
+                allLoaded = allLoaded && face.Status() == fm::FontFaceStatus::Loaded && !face.FontUri().empty();
+            }
+            check(allLoaded, pass == 1 ? "ImportFromRemoteAsync(load) loads every face" : "ImportFromRemoteAsync(load) again loads every face");
+            std::wcout << L"      pass " << pass << L": " << fonts.Size() << L" face(s) in " << ms << L" ms";
+            if (fonts.Size() > 0) std::wcout << L", e.g. " << std::wstring(fonts.GetAt(0).FontUri());
+            std::wcout << L"\n";
+        }
+        catch (hresult_error const& e)
+        {
+            std::wcout << L"[SKIP] remote import + load (network?): " << std::wstring(e.message()) << L"\n";
+        }
+    }
+
+    // 8. Local file source + concurrent LoadAsync on one face (both callers must settle).
+    if (argc > 1)
+    {
+        try
+        {
+            auto face = fmimpl::FontFace::FromFamilySource(hstring(L"DemoFile"), hstring(argv[1]));
+            auto first = face.LoadAsync();
+            auto second = face.LoadAsync();
+            auto firstErr = first.get();
+            auto secondErr = second.get();
+            check(firstErr.empty() && secondErr.empty() && face.Status() == fm::FontFaceStatus::Loaded,
+                  "FontFace.FromFamilySource(file) + concurrent LoadAsync");
+            std::wcout << L"      font uri        = " << std::wstring(face.FontUri()) << L"\n";
+
+            auto missing = fmimpl::FontFace::FromFamilySource(hstring(L"Missing"), hstring(L"C:\\nope\\missing.ttf"));
+            auto err = missing.LoadAsync().get();
+            check(!err.empty() && missing.Status() == fm::FontFaceStatus::Error, "FontFace.LoadAsync reports a missing file");
+
+            auto notFound = fmimpl::FontFace::FromFamilySource(hstring(L"NotFound"), hstring(L"https://fonts.gstatic.com/s/ns-font-manager-missing.ttf"));
+            auto httpErr = notFound.LoadAsync().get();
+            check(!httpErr.empty() && notFound.Status() == fm::FontFaceStatus::Error, "FontFace.LoadAsync reports a failed download");
+            std::wcout << L"      error           = " << std::wstring(httpErr) << L"\n";
+        }
+        catch (hresult_error const& e)
+        {
+            std::wcout << L"[FAIL] file source load threw: " << std::wstring(e.message()) << L"\n";
+            failures++;
         }
     }
 

@@ -1,6 +1,8 @@
 #pragma once
 #include "FontFace.g.h"
 #include <atomic>
+#include <memory>
+#include <mutex>
 
 namespace winrt::NativeScript::FontManager::implementation
 {
@@ -58,11 +60,23 @@ namespace winrt::NativeScript::FontManager::implementation
             ImportFromRemoteAsync(hstring url, bool load);
 
     private:
+        // One load shared by every LoadAsync caller that arrives while it runs. The owner signals
+        // `done` once `error` is final.
+        struct PendingLoad
+        {
+            winrt::handle done{ winrt::check_pointer(CreateEventW(nullptr, TRUE, FALSE, nullptr)) };
+            hstring error;
+        };
+
+        winrt::Windows::Foundation::IAsyncOperation<hstring> LoadInternalAsync();
+
         winrt::NativeScript::FontManager::FontDescriptors m_descriptors{ nullptr };
         hstring m_source;
         winrt::Windows::Storage::Streams::IBuffer m_data{ nullptr };
         hstring m_fontUri;
         std::atomic<int32_t> m_status{ 0 }; // FontFaceStatus::Unloaded
+        std::mutex m_loadMutex;
+        std::shared_ptr<PendingLoad> m_pendingLoad;
     };
 }
 
