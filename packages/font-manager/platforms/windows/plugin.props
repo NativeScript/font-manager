@@ -17,6 +17,6 @@
 -->
 <Project>
   <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)x64\NativeScript.FontManager.dll') and !Exists('$(MSBuildThisFileDirectory)arm64\NativeScript.FontManager.dll')">
-    <PackageReference Include="NativeScript.FontManager" Version="1.0.2" />
+    <PackageReference Include="NativeScript.FontManager" Version="1.0.18" />
   </ItemGroup>
 </Project>
