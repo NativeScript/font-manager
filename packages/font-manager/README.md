@@ -4,7 +4,7 @@
 npm install @nativescript/font-manager
 ```
 
-A NativeScript polyfill for the [CSS Font Loading API](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Font_Loading_API). If you've used `document.fonts` on the web, this works the same way - `FontFace` and `FontFaceSet` behave identically, so font-loading logic can be shared across platforms.
+A NativeScript polyfill for the [CSS Font Loading API](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Font_Loading_API). If you've used `document.fonts` on the web, this works the same way - `FontFace` and `FontFaceSet` behave identically, so font-loading logic can be shared across platforms. Native code backs each platform: Objective‑C (iOS), Kotlin (Android) and C++/WinRT (Windows).
 
 ## Load a local font at runtime
 
@@ -48,6 +48,14 @@ if (!FontFaceSet.instance.check('16px Roboto')) {
   await FontFaceSet.instance.load('16px Roboto');
 }
 ```
+
+## Platforms
+
+| Platform | Native source | Backend |
+| --- | --- | --- |
+| iOS | `src-native/ios` | CoreText / CoreGraphics |
+| Android | `src-native/android` | Android Typeface APIs |
+| Windows | `src-native/windows` | C++/WinRT + DirectWrite |
 
 ## License
 

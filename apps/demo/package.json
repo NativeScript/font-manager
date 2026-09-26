@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "@nativescript/android": "~8.9.0",
-    "@nativescript/ios": "~8.9.0"
+    "@nativescript/ios": "~8.9.0",
+    "@nativescript/windows": "alpha"
   }
 }

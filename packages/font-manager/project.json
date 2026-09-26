@@ -19,7 +19,8 @@
           {
             "glob": "**/*",
             "input": "packages/font-manager/platforms/",
-            "output": "./platforms/"
+            "output": "./platforms/",
+            "ignore": ["windows/x64/**", "windows/arm64/**"]
           }
         ],
         "dependsOn": [
