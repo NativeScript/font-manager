@@ -104,6 +104,8 @@ declare namespace NativeScript.FontManager {
   class FontFaceSetEventArgs {
     readonly Status: FontFaceSetStatus;
     readonly Face: FontFace;
+    // FontFaceSetLoadEvent.fontfaces (an IVectorView<FontFace>).
+    readonly Faces: any;
     readonly Error: string;
   }
 
@@ -123,6 +125,8 @@ declare namespace NativeScript.FontManager {
     Loading: any;
     LoadingDone: any;
     LoadingError: any;
+    // Not part of the Web API: membership changed or a member face finished loading.
+    Changed: any;
   }
 }
 

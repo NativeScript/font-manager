@@ -42,31 +42,66 @@ namespace winrt::NativeScript::FontManager::implementation
 
     void FontFaceSet::Add(fm::FontFace const& font)
     {
-        std::lock_guard lock(m_mutex);
-        m_faces.push_back(font);
-        std::wstring key = ToLower(std::wstring(font.Family()));
-        m_byFamily[key].push_back(font);
+        if (!font) return;
+        {
+            std::lock_guard lock(m_mutex);
+            // A set: adding a face it already holds does nothing.
+            if (ContainsLocked(font)) return;
+            m_faces.push_back(font);
+            m_byFamily[ToLower(std::wstring(font.Family()))].push_back(font);
+        }
+        RaiseChanged();
+        // A face added while it loads joins (or starts) the loading period.
+        if (font.Status() == fm::FontFaceStatus::Loading) OnFaceLoading(font);
     }
 
     void FontFaceSet::Delete(fm::FontFace const& font)
     {
-        std::lock_guard lock(m_mutex);
-        m_faces.erase(std::remove(m_faces.begin(), m_faces.end(), font), m_faces.end());
-        std::wstring key = ToLower(std::wstring(font.Family()));
-        auto it = m_byFamily.find(key);
-        if (it != m_byFamily.end())
+        if (!font) return;
+        PeriodEnd end;
         {
-            auto& vec = it->second;
-            vec.erase(std::remove(vec.begin(), vec.end(), font), vec.end());
-            if (vec.empty()) m_byFamily.erase(it);
+            std::lock_guard lock(m_mutex);
+            if (!ContainsLocked(font)) return;
+            m_faces.erase(std::remove(m_faces.begin(), m_faces.end(), font), m_faces.end());
+            auto it = m_byFamily.find(ToLower(std::wstring(font.Family())));
+            if (it != m_byFamily.end())
+            {
+                auto& vec = it->second;
+                vec.erase(std::remove(vec.begin(), vec.end(), font), vec.end());
+                if (vec.empty()) m_byFamily.erase(it);
+            }
+            // A removed face no longer holds the set in its loading period.
+            if (std::find(m_loadingFaces.begin(), m_loadingFaces.end(), font) != m_loadingFaces.end())
+            {
+                m_loadingFaces.erase(std::remove(m_loadingFaces.begin(), m_loadingFaces.end(), font), m_loadingFaces.end());
+                if (m_loadingFaces.empty()) end = SettleLocked(nullptr, {});
+            }
         }
+        RaiseChanged();
+        Raise(end);
     }
 
     void FontFaceSet::Clear()
     {
-        std::lock_guard lock(m_mutex);
-        m_faces.clear();
-        m_byFamily.clear();
+        PeriodEnd end;
+        {
+            std::lock_guard lock(m_mutex);
+            if (m_faces.empty()) return;
+            m_faces.clear();
+            m_byFamily.clear();
+            if (!m_loadingFaces.empty())
+            {
+                m_loadingFaces.clear();
+                end = SettleLocked(nullptr, {});
+            }
+        }
+        RaiseChanged();
+        Raise(end);
+    }
+
+    bool FontFaceSet::ContainsLocked(fm::FontFace const& face) const
+    {
+        return std::find(m_faces.begin(), m_faces.end(), face) != m_faces.end();
     }
 
     bool FontFaceSet::Has(fm::FontFace const& font)
@@ -112,29 +147,77 @@ namespace winrt::NativeScript::FontManager::implementation
         return ResolveBest(font) != nullptr;
     }
 
-    void FontFaceSet::BeginLoad(fm::FontFace const& face)
+    void FontFaceSet::OnFaceLoading(fm::FontFace const& face)
     {
-        m_pending++;
+        bool started = false;
+        {
+            std::lock_guard lock(m_mutex);
+            // The status is read again under the lock: a face that settles meanwhile sets it before
+            // calling OnFaceSettled, so it is either tracked here and settled there, or neither.
+            if (!ContainsLocked(face) || face.Status() != fm::FontFaceStatus::Loading) return;
+            if (std::find(m_loadingFaces.begin(), m_loadingFaces.end(), face) != m_loadingFaces.end()) return;
+            started = m_loadingFaces.empty() && m_loadedFaces.empty() && m_failedFaces.empty();
+            m_loadingFaces.push_back(face);
+        }
+        if (!started) return;
         m_statusChanged(*this, winrt::make<FontFaceSetEventArgs>(fm::FontFaceSetStatus::Loading, face, hstring(L"")));
         m_loading(*this, winrt::make<FontFaceSetEventArgs>(fm::FontFaceSetStatus::Loading, face, hstring(L"")));
     }
 
-    void FontFaceSet::EndLoadSuccess(fm::FontFace const& face)
+    void FontFaceSet::OnFaceSettled(fm::FontFace const& face, hstring const& error)
     {
-        m_loadingDone(*this, winrt::make<FontFaceSetEventArgs>(fm::FontFaceSetStatus::Loaded, face, hstring(L"")));
-        if (--m_pending <= 0)
+        PeriodEnd end;
+        bool member = false;
         {
-            m_statusChanged(*this, winrt::make<FontFaceSetEventArgs>(fm::FontFaceSetStatus::Loaded, face, hstring(L"")));
+            std::lock_guard lock(m_mutex);
+            member = ContainsLocked(face);
+            auto it = std::find(m_loadingFaces.begin(), m_loadingFaces.end(), face);
+            if (it != m_loadingFaces.end())
+            {
+                m_loadingFaces.erase(it);
+                end = SettleLocked(face, error);
+            }
+        }
+        if (member) RaiseChanged();
+        Raise(end);
+    }
+
+    FontFaceSet::PeriodEnd FontFaceSet::SettleLocked(fm::FontFace const& face, hstring const& error)
+    {
+        if (face)
+        {
+            if (error.empty()) m_loadedFaces.push_back(face);
+            else
+            {
+                m_failedFaces.push_back(face);
+                m_lastError = error;
+            }
+        }
+        PeriodEnd end;
+        if (!m_loadingFaces.empty()) return end;
+        end.ended = true;
+        end.loaded.swap(m_loadedFaces);
+        end.failed.swap(m_failedFaces);
+        end.error = m_lastError;
+        m_lastError = hstring();
+        return end;
+    }
+
+    void FontFaceSet::Raise(PeriodEnd const& end)
+    {
+        if (!end.ended) return;
+        fm::FontFace first = end.loaded.empty() ? nullptr : end.loaded.front();
+        m_statusChanged(*this, winrt::make<FontFaceSetEventArgs>(fm::FontFaceSetStatus::Loaded, first, hstring(L"")));
+        m_loadingDone(*this, winrt::make<FontFaceSetEventArgs>(fm::FontFaceSetStatus::Loaded, first, hstring(L""), end.loaded));
+        if (!end.failed.empty())
+        {
+            m_loadingError(*this, winrt::make<FontFaceSetEventArgs>(fm::FontFaceSetStatus::Loaded, end.failed.front(), end.error, end.failed));
         }
     }
 
-    void FontFaceSet::EndLoadError(fm::FontFace const& face, hstring const& error)
+    void FontFaceSet::RaiseChanged()
     {
-        m_loadingError(*this, winrt::make<FontFaceSetEventArgs>(fm::FontFaceSetStatus::Loaded, face, error));
-        if (--m_pending <= 0)
-        {
-            m_statusChanged(*this, winrt::make<FontFaceSetEventArgs>(fm::FontFaceSetStatus::Loaded, face, hstring(L"")));
-        }
+        m_changed(*this, nullptr);
     }
 
     IAsyncOperation<IVectorView<fm::FontFace>> FontFaceSet::LoadAsync(hstring font, hstring text)
@@ -151,17 +234,12 @@ namespace winrt::NativeScript::FontManager::implementation
             co_return single_threaded_vector<fm::FontFace>().GetView();
         }
 
-        BeginLoad(face);
+        // A member face reports its load to this set itself (OnFaceLoading / OnFaceSettled).
         hstring err = co_await face.LoadAsync();
 
         std::vector<fm::FontFace> result{ face };
-        if (err.empty())
-        {
-            EndLoadSuccess(face);
-            co_return single_threaded_vector(std::move(result)).GetView();
-        }
+        if (err.empty()) co_return single_threaded_vector(std::move(result)).GetView();
 
-        EndLoadError(face, err);
         throw hresult_error(E_FAIL, err);
     }
 

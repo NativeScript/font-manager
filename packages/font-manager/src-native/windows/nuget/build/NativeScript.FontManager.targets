@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NativeScript.FontManager - MSBuild integration for non-native consumers, such as the C# host app
+  of a NativeScript Windows app. NuGet only imports build/native into native projects, so without
+  this file such an app never received the component. No winmd projection here: a .NET project
+  rejects a winmd Reference (NETSDK1130); the NativeScript runtime reads the copied winmd itself.
+-->
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)NativeScript.FontManager.Runtime.targets" Condition="'$(_NSFontManagerRuntimeImported)' != 'true'" />
+</Project>

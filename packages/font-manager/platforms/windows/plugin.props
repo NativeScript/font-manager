@@ -4,8 +4,8 @@
 
   Remote distribution (npm): when the plugin carries NO locally-built binaries (the published npm
   package ships only this file + plugin.targets), pull the C++/WinRT component from NuGet. The
-  NativeScript.FontManager package's own build/native targets then add the winmd projection, copy
-  the active-arch dll, and register the activatable classes. This mirrors Android's include.gradle
+  NativeScript.FontManager package's own build targets then copy the active-arch dll and winmd and
+  register the activatable classes, in the app's C# host project too. This mirrors Android's include.gradle
   Maven coordinate and iOS's remote SPM package.
 
   Local development: src-native/windows/publish.ps1 places the built dll/winmd in x64/ and arm64/
@@ -17,6 +17,6 @@
 -->
 <Project>
   <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)x64\NativeScript.FontManager.dll') and !Exists('$(MSBuildThisFileDirectory)arm64\NativeScript.FontManager.dll')">
-    <PackageReference Include="NativeScript.FontManager" Version="1.0.18" />
+    <PackageReference Include="NativeScript.FontManager" Version="1.0.19" />
   </ItemGroup>
 </Project>

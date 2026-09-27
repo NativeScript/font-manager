@@ -16,7 +16,7 @@
 
   These targets only act in LOCAL-development mode - i.e. when locally-built binaries are present in
   x64/ or arm64/ next to this file. For npm consumers (no local binaries) plugin.props adds a NuGet
-  PackageReference instead, and that package's own build/native targets perform the copy +
+  PackageReference instead, and that package's own build targets perform the copy +
   registration, so everything here is gated on $(_NSFontManagerHasLocal) to avoid doing it twice.
 -->
 <Project>
