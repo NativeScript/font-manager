@@ -22,8 +22,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "FontManager",
-            url: "https://github.com/NativeScript/font-manager/releases/download/1.0.19/FontManager.xcframework.zip",
-            checksum: "884a7bb9498426321ed23fb57a75c32944b26dbb172e7e7de5e1f8ac41395ae3"
+            url: "https://github.com/NativeScript/font-manager/releases/download/1.0.20/FontManager.xcframework.zip",
+            checksum: "d15472c28faf4805a5c23c4e2195e902de945bce12f40bf0de981bee2b42bf4b"
         ),
     ]
 )
