@@ -84,13 +84,10 @@ namespace winrt::NativeScript::FontManager::implementation
         }
         void Changed(winrt::event_token const& token) noexcept { m_changed.remove(token); }
 
-        // From FontFace::LoadAsync: a face started loading, or settled (`error` empty on success).
-        // Ignored for faces not in the set.
         void OnFaceLoading(winrt::NativeScript::FontManager::FontFace const& face);
         void OnFaceSettled(winrt::NativeScript::FontManager::FontFace const& face, hstring const& error);
 
     private:
-        // What a loading period that just ended reports, taken under the lock and raised after it.
         struct PeriodEnd
         {
             bool ended{ false };
@@ -101,7 +98,6 @@ namespace winrt::NativeScript::FontManager::implementation
 
         winrt::NativeScript::FontManager::FontFace ResolveBest(hstring const& font);
         bool ContainsLocked(winrt::NativeScript::FontManager::FontFace const& face) const;
-        // Stops tracking `face` in the loading period; ends the period when it was the last.
         PeriodEnd SettleLocked(winrt::NativeScript::FontManager::FontFace const& face, hstring const& error);
         void Raise(PeriodEnd const& end);
         void RaiseChanged();
@@ -109,7 +105,6 @@ namespace winrt::NativeScript::FontManager::implementation
         std::mutex m_mutex;
         std::vector<winrt::NativeScript::FontManager::FontFace> m_faces;
         std::map<std::wstring, std::vector<winrt::NativeScript::FontManager::FontFace>> m_byFamily;
-        // The current loading period: faces still loading, and those settled so far.
         std::vector<winrt::NativeScript::FontManager::FontFace> m_loadingFaces;
         std::vector<winrt::NativeScript::FontManager::FontFace> m_loadedFaces;
         std::vector<winrt::NativeScript::FontManager::FontFace> m_failedFaces;

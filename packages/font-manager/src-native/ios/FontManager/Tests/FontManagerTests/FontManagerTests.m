@@ -250,6 +250,106 @@ static NSString *FontFile(NSString *name) {
     XCTAssertEqual(set.status, NSCFontFaceSetStatusLoaded);
 }
 
+#pragma mark - Loading periods
+
+- (void)drainMain {
+    XCTestExpectation *drained = [self expectationWithDescription:@"drain"];
+    dispatch_async(dispatch_get_main_queue(), ^{ [drained fulfill]; });
+    [self waitForExpectations:@[drained] timeout:10];
+}
+
+- (NSMutableArray<NSString *> *)record:(NSCFontFaceSet *)set {
+    NSMutableArray<NSString *> *events = [NSMutableArray array];
+    [set addOnStatusListener:^(NSCFontFaceSetStatus status) {
+        [events addObject:status == NSCFontFaceSetStatusLoading ? @"status:Loading" : @"status:Loaded"];
+    }];
+    [set addOnLoadingListener:^(NSCFontFace *f) { [events addObject:[@"loading:" stringByAppendingString:f.family]]; }];
+    [set addOnLoadingDoneListener:^(NSCFontFace *f) { [events addObject:[@"done:" stringByAppendingString:f.family]]; }];
+    [set addOnLoadingDoneFacesListener:^(NSArray<NSCFontFace *> *faces) {
+        [events addObject:[@"doneFaces:" stringByAppendingString:[[faces valueForKey:@"family"] componentsJoinedByString:@","]]];
+    }];
+    [set addOnLoadingErrorFacesListener:^(NSArray<NSCFontFace *> *faces, NSString *error) {
+        [events addObject:[@"errorFaces:" stringByAppendingString:[[faces valueForKey:@"family"] componentsJoinedByString:@","]]];
+    }];
+    [set addOnChangedListener:^{ [events addObject:@"changed"]; }];
+    return events;
+}
+
+- (void)testAMemberFacesOwnLoadRunsOneLoadingPeriod {
+    NSCFontFaceSet *set = [[NSCFontFaceSet alloc] init];
+    NSMutableArray *events = [self record:set];
+    NSCFontFace *face = [[NSCFontFace alloc] initWithFamily:@"PeriodA" source:FontFile(@"period/a.ttf")];
+    [set add:face];
+    [set add:face];
+    XCTAssertEqual(set.size, 1);
+    XCTAssertNil([self loadAndWait:face]);
+    [self drainMain];
+    NSArray *expected = @[@"changed", @"status:Loading", @"loading:PeriodA", @"changed", @"status:Loaded",
+                          @"done:PeriodA", @"doneFaces:PeriodA"];
+    XCTAssertEqualObjects(events, expected);
+    XCTAssertEqual(set.status, NSCFontFaceSetStatusLoaded);
+}
+
+- (void)testConcurrentLoadsShareAPeriodAndReportFailuresTogether {
+    NSCFontFaceSet *set = [[NSCFontFaceSet alloc] init];
+    NSCFontFace *good = [[NSCFontFace alloc] initWithFamily:@"PeriodB" source:FontFile(@"period/b.ttf")];
+    NSCFontFace *bad = [[NSCFontFace alloc] initWithFamily:@"PeriodC" source:@"file:///no/such/file.ttf"];
+    [set add:good];
+    [set add:bad];
+    NSMutableArray *events = [self record:set];
+    XCTestExpectation *goodDone = [self expectationWithDescription:@"good"];
+    XCTestExpectation *badDone = [self expectationWithDescription:@"bad"];
+    __block NSString *badError = nil;
+    [good load:^(NSString *e) { [goodDone fulfill]; }];
+    [bad load:^(NSString *e) { badError = e; [badDone fulfill]; }];
+    [self waitForExpectations:@[goodDone, badDone] timeout:10];
+    [self drainMain];
+    XCTAssertNotNil(badError);
+    NSPredicate *loadingStatus = [NSPredicate predicateWithFormat:@"SELF == 'status:Loading'"];
+    NSPredicate *loadedStatus = [NSPredicate predicateWithFormat:@"SELF == 'status:Loaded'"];
+    NSPredicate *doneFaces = [NSPredicate predicateWithFormat:@"SELF BEGINSWITH 'doneFaces:'"];
+    XCTAssertEqual([events filteredArrayUsingPredicate:loadingStatus].count, 1);
+    XCTAssertEqual([events filteredArrayUsingPredicate:loadedStatus].count, 1);
+    XCTAssertEqual([events filteredArrayUsingPredicate:doneFaces].count, 1);
+    XCTAssertTrue([events containsObject:@"doneFaces:PeriodB"]);
+    XCTAssertTrue([events containsObject:@"errorFaces:PeriodC"]);
+}
+
+- (void)testAddingAFaceThatHasAlreadyLoadedOnlyRaisesChanged {
+    NSCFontFaceSet *set = [[NSCFontFaceSet alloc] init];
+    NSCFontFace *face = [[NSCFontFace alloc] initWithFamily:@"PeriodD" source:FontFile(@"period/d.ttf")];
+    XCTAssertNil([self loadAndWait:face]);
+    NSMutableArray *events = [self record:set];
+    [set add:face];
+    [self drainMain];
+    XCTAssertEqualObjects(events, @[@"changed"]);
+}
+
+- (void)testLoadingAFaceThatHasAlreadyLoadedThroughTheSetRaisesNothing {
+    NSCFontFaceSet *set = [[NSCFontFaceSet alloc] init];
+    NSCFontFace *face = [[NSCFontFace alloc] initWithFamily:@"PeriodE" source:FontFile(@"period/e.ttf")];
+    [set add:face];
+    XCTAssertNil([self loadAndWait:face]);
+    [self drainMain];
+    NSMutableArray *events = [self record:set];
+    XCTestExpectation *done = [self expectationWithDescription:@"load"];
+    [set load:@"16px PeriodE" text:nil callback:^(NSArray *fonts, NSString *e) { [done fulfill]; }];
+    [self waitForExpectations:@[done] timeout:10];
+    [self drainMain];
+    XCTAssertEqualObjects(events, @[]);
+}
+
+- (void)testRemovingAFaceRaisesChanged {
+    NSCFontFaceSet *set = [[NSCFontFaceSet alloc] init];
+    NSCFontFace *face = [[NSCFontFace alloc] initWithFamily:@"PeriodF" source:FontFile(@"period/f.ttf")];
+    [set add:face];
+    NSMutableArray *events = [self record:set];
+    [set delete:face];
+    [set delete:face];
+    [self drainMain];
+    XCTAssertEqualObjects(events, @[@"changed"]);
+}
+
 #pragma mark - Remote
 
 - (void)testImportsEveryFaceInParallelAndAnswersOnceAllAreLoaded {

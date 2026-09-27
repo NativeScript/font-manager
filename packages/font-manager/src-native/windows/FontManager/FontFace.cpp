@@ -135,7 +135,6 @@ namespace winrt::NativeScript::FontManager::implementation
             m_pendingLoad = nullptr;
         }
         SetEvent(pending->done.get());
-        // After the status is final, so the set can't track this load again once it has settled.
         set->OnFaceSettled(*this, error);
         co_return error;
     }

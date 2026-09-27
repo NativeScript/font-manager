@@ -2,6 +2,11 @@
 #import "NSCFontDescriptors.h"
 #import "NSCFontFaceSet.h"
 #import "NSCFontResolver.h"
+
+@interface NSCFontFaceSet (NSCFontFaceLoading)
++ (void)_faceDidStartLoading:(NSCFontFace *)face;
++ (void)_faceDidSettle:(NSCFontFace *)face error:(nullable NSString *)error;
+@end
 #if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 #import <UIKit/UIKit.h>
 #endif
@@ -339,7 +344,10 @@ static inline CGFloat NSCDefaultLabelFontSize(void) {
         if (callback) NSCRunOnMain(^{ callback(nil); });
         return YES;
     }
-    if (claimed) [self _runLoad:wanted];
+    if (claimed) {
+        [NSCFontFaceSet _faceDidStartLoading:self];
+        [self _runLoad:wanted];
+    }
     return NO;
 }
 
@@ -427,6 +435,8 @@ static inline CGFloat NSCDefaultLabelFontSize(void) {
         [self _runLoad:wanted];
         return;
     }
+
+    [NSCFontFaceSet _faceDidSettle:self error:error];
 
     for (void (^waiter)(NSString * _Nullable) in waiters) waiter(error);
     if (callbacks.count > 0) {

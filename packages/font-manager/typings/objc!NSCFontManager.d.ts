@@ -181,7 +181,13 @@ declare class NSCFontFaceSet extends NSObject {
 
   add(font: NSCFontFace): void;
 
+  addOnChangedListener(listener: () => void): void;
+
+  addOnLoadingDoneFacesListener(listener: (p1: NSArray<NSCFontFace>) => void): void;
+
   addOnLoadingDoneListener(listener: (p1: NSCFontFace) => void): void;
+
+  addOnLoadingErrorFacesListener(listener: (p1: NSArray<NSCFontFace>, p2: string) => void): void;
 
   addOnLoadingErrorListener(listener: (p1: NSCFontFace, p2: string) => void): void;
 
@@ -207,7 +213,13 @@ declare class NSCFontFaceSet extends NSObject {
 
   ready(callback: (p1: NSCFontFaceSet) => void): void;
 
+  removeOnChangedListener(listener: () => void): void;
+
+  removeOnLoadingDoneFacesListener(listener: (p1: NSArray<NSCFontFace>) => void): void;
+
   removeOnLoadingDoneListener(listener: (p1: NSCFontFace) => void): void;
+
+  removeOnLoadingErrorFacesListener(listener: (p1: NSArray<NSCFontFace>, p2: string) => void): void;
 
   removeOnLoadingErrorListener(listener: (p1: NSCFontFace, p2: string) => void): void;
 

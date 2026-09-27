@@ -14,7 +14,6 @@ function viewToFaces(view: any): FontFace[] {
   return out;
 }
 
-// FontFaceSetLoadEvent.fontfaces: the faces the native event carries.
 function eventFaces(args: any): FontFace[] {
   return args?.Faces ? viewToFaces(args.Faces) : [];
 }

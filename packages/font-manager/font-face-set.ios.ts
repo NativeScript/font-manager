@@ -1,6 +1,16 @@
 import { Observable } from '@nativescript/core';
 import { FontFace } from '.';
 
+function arrayToFaces(faces: NSArray<NSCFontFace>): FontFace[] {
+  const out: FontFace[] = [];
+  const count = faces ? faces.count : 0;
+  for (let i = 0; i < count; i++) {
+    const face = (FontFace as any).fromNative(faces.objectAtIndex(i));
+    if (face) out.push(face);
+  }
+  return out;
+}
+
 export class FontFaceSet extends Observable {
   native_: NSCFontFaceSet;
   constructor() {
@@ -15,22 +25,22 @@ export class FontFaceSet extends Observable {
       owner.notify({ eventName: 'status', object: owner, status: value });
     });
 
-    this.native_.addOnLoadingListener((face) => {
+    this.native_.addOnLoadingListener((_face) => {
       const owner = ref.get();
       if (!owner) return;
-      owner.notify({ eventName: 'loading', object: owner, fontfaces: [(FontFace as any).fromNative(face)] });
+      owner.notify({ eventName: 'loading', object: owner, fontfaces: [] });
     });
 
-    this.native_.addOnLoadingDoneListener((face) => {
+    this.native_.addOnLoadingDoneFacesListener((faces) => {
       const owner = ref.get();
       if (!owner) return;
-      owner.notify({ eventName: 'loadingdone', object: owner, fontfaces: [(FontFace as any).fromNative(face)] });
+      owner.notify({ eventName: 'loadingdone', object: owner, fontfaces: arrayToFaces(faces) });
     });
 
-    this.native_.addOnLoadingErrorListener((face, error) => {
+    this.native_.addOnLoadingErrorFacesListener((faces, error) => {
       const owner = ref.get();
       if (!owner) return;
-      owner.notify({ eventName: 'loadingerror', object: owner, fontfaces: [(FontFace as any).fromNative(face)], error });
+      owner.notify({ eventName: 'loadingerror', object: owner, fontfaces: arrayToFaces(faces), error });
     });
   }
 
