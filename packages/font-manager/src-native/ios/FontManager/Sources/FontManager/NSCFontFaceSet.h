@@ -37,6 +37,15 @@ typedef NS_ENUM(NSInteger, NSCFontFaceSetStatus) {
 - (void)addOnLoadingErrorListener:(void (^)(NSCFontFace *, NSString *))listener;
 - (void)removeOnLoadingErrorListener:(void (^)(NSCFontFace *, NSString *))listener;
 
+- (void)addOnLoadingDoneFacesListener:(void (^)(NSArray<NSCFontFace *> *))listener;
+- (void)removeOnLoadingDoneFacesListener:(void (^)(NSArray<NSCFontFace *> *))listener;
+
+- (void)addOnLoadingErrorFacesListener:(void (^)(NSArray<NSCFontFace *> *, NSString * _Nullable))listener;
+- (void)removeOnLoadingErrorFacesListener:(void (^)(NSArray<NSCFontFace *> *, NSString * _Nullable))listener;
+
+- (void)addOnChangedListener:(void (^)(void))listener;
+- (void)removeOnChangedListener:(void (^)(void))listener;
+
 + (instancetype)instance;
 
 - (void)add:(NSCFontFace *)font;

@@ -1,6 +1,16 @@
 import { Observable, Utils } from '@nativescript/core';
 import { FontFace } from '.';
 declare const kotlin: any;
+
+function listToFaces(list: java.util.List<org.nativescript.fontmanager.FontFace>): FontFace[] {
+  const out: FontFace[] = [];
+  const count = list ? list.size() : 0;
+  for (let i = 0; i < count; i++) {
+    const face = (FontFace as any).fromNative(list.get(i));
+    if (face) out.push(face);
+  }
+  return out;
+}
 export class FontFaceSet extends Observable {
   native_: org.nativescript.fontmanager.FontFaceSet;
   constructor() {
@@ -21,32 +31,30 @@ export class FontFaceSet extends Observable {
 
     (this.native_ as any).addOnLoadingListener(
       new kotlin.jvm.functions.Function1({
-        invoke(face: org.nativescript.fontmanager.FontFace) {
+        invoke(_face: org.nativescript.fontmanager.FontFace) {
           const owner = ref.get();
           if (!owner) return;
-          owner.notify({ eventName: 'loading', object: owner, fontfaces: [(FontFace as any).fromNative(face)] });
+          owner.notify({ eventName: 'loading', object: owner, fontfaces: [] });
         },
       }),
     );
 
-    (this.native_ as any).addOnLoadingDoneListener(
+    (this.native_ as any).addOnLoadingDoneFacesListener(
       new kotlin.jvm.functions.Function1({
-        invoke(face: org.nativescript.fontmanager.FontFace) {
+        invoke(faces: java.util.List<org.nativescript.fontmanager.FontFace>) {
           const owner = ref.get();
           if (!owner) return;
-          const font = (FontFace as any).fromNative(face);
-          owner.notify({ eventName: 'loadingdone', object: owner, fontfaces: [font] });
+          owner.notify({ eventName: 'loadingdone', object: owner, fontfaces: listToFaces(faces) });
         },
       }),
     );
 
-    (this.native_ as any).addOnLoadingErrorListener(
+    (this.native_ as any).addOnLoadingErrorFacesListener(
       new kotlin.jvm.functions.Function2({
-        invoke(face: org.nativescript.fontmanager.FontFace, error: string) {
+        invoke(faces: java.util.List<org.nativescript.fontmanager.FontFace>, error: string) {
           const owner = ref.get();
           if (!owner) return;
-          const font = (FontFace as any).fromNative(face);
-          owner.notify({ eventName: 'loadingerror', object: owner, fontfaces: [font], error });
+          owner.notify({ eventName: 'loadingerror', object: owner, fontfaces: listToFaces(faces), error });
         },
       }),
     );

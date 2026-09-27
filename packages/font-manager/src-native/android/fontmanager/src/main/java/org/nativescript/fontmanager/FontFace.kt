@@ -13,7 +13,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Matcher
 
-
 data class FontSnapshot(
   val id: String,
   val version: Long,
@@ -156,7 +155,6 @@ class FontFace {
                   it.groupValues[1]
                 } ?: "normal"
 
-
                 val src = Constants.FONT_SRC_PATTERN.find(it)?.let {
                   it.groupValues[1]
                 }
@@ -240,7 +238,6 @@ class FontFace {
     fontData = source
     fontDescriptors = descriptors ?: FontDescriptors(family)
   }
-
 
   interface Callback {
     fun onSuccess()
@@ -572,6 +569,7 @@ class FontFace {
       startLoad(appContext!!)
       return
     }
+    FontFaceSet.faceSettled(this, error)
     if (queued.isNotEmpty()) FontExecutors.main.execute { queued.forEach { it(error) } }
   }
 
@@ -580,7 +578,10 @@ class FontFace {
     when (admit(callback)) {
       Admission.AlreadyLoaded -> FontExecutors.main.execute { callback(null) }
       Admission.Queued -> Unit
-      Admission.Claimed -> startLoad(context)
+      Admission.Claimed -> {
+        FontFaceSet.faceLoading(this)
+        startLoad(context)
+      }
     }
   }
 

@@ -166,6 +166,12 @@ declare module org {
         public removeOnLoadingDoneListener(listener: (face: org.nativescript.fontmanager.FontFace) => void): void;
         public addOnLoadingErrorListener(listener: (face: org.nativescript.fontmanager.FontFace, error: string) => void): void;
         public removeOnLoadingErrorListener(listener: (face: org.nativescript.fontmanager.FontFace, error: string) => void): void;
+        public addOnLoadingDoneFacesListener(listener: (faces: java.util.List<org.nativescript.fontmanager.FontFace>) => void): void;
+        public removeOnLoadingDoneFacesListener(listener: (faces: java.util.List<org.nativescript.fontmanager.FontFace>) => void): void;
+        public addOnLoadingErrorFacesListener(listener: (faces: java.util.List<org.nativescript.fontmanager.FontFace>, error: string) => void): void;
+        public removeOnLoadingErrorFacesListener(listener: (faces: java.util.List<org.nativescript.fontmanager.FontFace>, error: string) => void): void;
+        public addOnChangedListener(listener: () => void): void;
+        public removeOnChangedListener(listener: () => void): void;
       }
       export module FontFaceSet {
         export class Companion {

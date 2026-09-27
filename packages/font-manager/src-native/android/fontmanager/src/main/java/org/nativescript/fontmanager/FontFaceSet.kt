@@ -2,24 +2,39 @@ package org.nativescript.fontmanager
 
 import android.content.Context
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
-class FontFaceSet {
+class FontFaceSet internal constructor(private val dispatch: Executor?) {
+  constructor() : this(null)
+
+  init {
+    synchronized(allSets) { allSets.add(this) }
+  }
+
   private val lock = Any()
   private val fonts = LinkedHashSet<FontFace>()
   private val fontsByFamily = mutableMapOf<String, MutableList<FontFace>>()
 
+  private val loadingFaces = mutableListOf<FontFace>()
+  private val loadedFaces = mutableListOf<FontFace>()
+  private val failedFaces = mutableListOf<FontFace>()
+  private var lastError: String? = null
+
   enum class Status { Loading, Loaded }
 
   val status: Status
-    get() = if (pendingLoads.get() == 0) Status.Loaded else Status.Loading
+    get() = synchronized(lock) { if (loadingFaces.isEmpty()) Status.Loaded else Status.Loading }
 
   private val statusListeners = CopyOnWriteArrayList<(Status) -> Unit>()
   private val loadingListeners = CopyOnWriteArrayList<(FontFace) -> Unit>()
   private val loadingDoneListeners = CopyOnWriteArrayList<(FontFace) -> Unit>()
   private val loadingErrorListeners = CopyOnWriteArrayList<(FontFace, String) -> Unit>()
+  private val loadingDoneFacesListeners = CopyOnWriteArrayList<(List<FontFace>) -> Unit>()
+  private val loadingErrorFacesListeners = CopyOnWriteArrayList<(List<FontFace>, String?) -> Unit>()
+  private val changedListeners = CopyOnWriteArrayList<() -> Unit>()
 
   fun addOnStatusListener(listener: (Status) -> Unit) {
     statusListeners.add(listener)
@@ -53,7 +68,30 @@ class FontFaceSet {
     loadingErrorListeners.remove(listener)
   }
 
-  private val pendingLoads = AtomicInteger(0)
+  fun addOnLoadingDoneFacesListener(listener: (List<FontFace>) -> Unit) {
+    loadingDoneFacesListeners.add(listener)
+  }
+
+  fun removeOnLoadingDoneFacesListener(listener: (List<FontFace>) -> Unit) {
+    loadingDoneFacesListeners.remove(listener)
+  }
+
+  fun addOnLoadingErrorFacesListener(listener: (List<FontFace>, String?) -> Unit) {
+    loadingErrorFacesListeners.add(listener)
+  }
+
+  fun removeOnLoadingErrorFacesListener(listener: (List<FontFace>, String?) -> Unit) {
+    loadingErrorFacesListeners.remove(listener)
+  }
+
+  fun addOnChangedListener(listener: () -> Unit) {
+    changedListeners.add(listener)
+  }
+
+  fun removeOnChangedListener(listener: () -> Unit) {
+    changedListeners.remove(listener)
+  }
+
   private val readyCallbacks = mutableListOf<(FontFaceSet) -> Unit>()
 
   val iter: Iterator<FontFace>
@@ -70,24 +108,38 @@ class FontFaceSet {
       if (!fonts.add(font)) return
       fontsByFamily.getOrPut(font.fontFamily.lowercase()) { mutableListOf() }.add(font)
     }
+    notifyChanged()
+    if (font.status == FontFaceStatus.Loading) onFaceLoading(font)
   }
 
   fun delete(font: FontFace) {
-    synchronized(lock) {
+    val end = synchronized(lock) {
       if (!fonts.remove(font)) return
       val key = font.fontFamily.lowercase()
       fontsByFamily[key]?.let { list ->
         list.remove(font)
         if (list.isEmpty()) fontsByFamily.remove(key)
       }
+      if (loadingFaces.remove(font) && loadingFaces.isEmpty()) endPeriodLocked() else null
     }
+    notifyChanged()
+    end?.let { raise(it) }
   }
 
   fun clear() {
-    synchronized(lock) {
+    val end = synchronized(lock) {
+      if (fonts.isEmpty()) return
       fonts.clear()
       fontsByFamily.clear()
+      if (loadingFaces.isNotEmpty()) {
+        loadingFaces.clear()
+        endPeriodLocked()
+      } else {
+        null
+      }
     }
+    notifyChanged()
+    end?.let { raise(it) }
   }
 
   fun has(font: FontFace): Boolean = synchronized(lock) { fonts.contains(font) }
@@ -98,9 +150,9 @@ class FontFaceSet {
    */
   fun ready(callback: (FontFaceSet) -> Unit) {
     val idle = synchronized(lock) {
-      if (pendingLoads.get() == 0) true else { readyCallbacks.add(callback); false }
+      if (loadingFaces.isEmpty()) true else { readyCallbacks.add(callback); false }
     }
-    if (idle) FontExecutors.main.execute { callback(this) }
+    if (idle) notify { callback(this) }
   }
 
   private fun isGenericFamily(familyKey: String): Boolean = familyKey in GENERIC_FAMILIES
@@ -141,8 +193,6 @@ class FontFaceSet {
     text: String? = null,
     callback: ((List<FontFace>, String?) -> Unit)? = null
   ) {
-    beginLoad()
-
     val resolved = try {
       FontParser.parse(font)?.let { resolveFonts(it) }
     } catch (e: Exception) {
@@ -151,7 +201,6 @@ class FontFaceSet {
 
     if (resolved.isNullOrEmpty()) {
       val error = if (resolved == null) "Failed to load font $font" else null
-      endLoad()
       if (callback != null) notify { callback(emptyList(), error) }
       return
     }
@@ -159,47 +208,90 @@ class FontFaceSet {
     val remaining = AtomicInteger(resolved.size)
     val firstError = AtomicReference<String?>(null)
     for (face in resolved) {
-      notify { loadingListeners.forEach { it(face) } }
       face.load(context) { faceError ->
-        if (faceError != null) {
-          firstError.compareAndSet(null, faceError)
-          loadingErrorListeners.forEach { it(face, faceError) }
-        } else {
-          loadingDoneListeners.forEach { it(face) }
-        }
-        if (remaining.decrementAndGet() == 0) {
-          endLoad()
-          callback?.invoke(resolved, firstError.get())
-        }
+        if (faceError != null) firstError.compareAndSet(null, faceError)
+        if (remaining.decrementAndGet() == 0) callback?.invoke(resolved, firstError.get())
       }
     }
   }
 
-  private fun notify(block: () -> Unit) = FontExecutors.main.execute(block)
+  private class PeriodEnd(
+    val loaded: List<FontFace>,
+    val failed: List<FontFace>,
+    val error: String?,
+    val ready: List<(FontFaceSet) -> Unit>
+  )
 
-  private fun beginLoad() {
-    pendingLoads.incrementAndGet()
-    notify { statusListeners.forEach { it(Status.Loading) } }
+  internal fun onFaceLoading(face: FontFace) {
+    val started = synchronized(lock) {
+      if (face !in fonts || face.status != FontFaceStatus.Loading || face in loadingFaces) return
+      val first = loadingFaces.isEmpty()
+      loadingFaces.add(face)
+      first
+    }
+    if (!started) return
+    notify {
+      statusListeners.forEach { it(Status.Loading) }
+      loadingListeners.forEach { it(face) }
+    }
   }
 
-  private fun endLoad() {
-    if (pendingLoads.decrementAndGet() != 0) return
-    val callbacks = synchronized(lock) {
-      val pending = readyCallbacks.toList()
-      readyCallbacks.clear()
-      pending
+  internal fun onFaceSettled(face: FontFace, error: String?) {
+    var member = false
+    val end = synchronized(lock) {
+      member = face in fonts
+      if (!loadingFaces.remove(face)) return@synchronized null
+      if (error == null) loadedFaces.add(face) else {
+        failedFaces.add(face)
+        lastError = error
+      }
+      if (loadingFaces.isEmpty()) endPeriodLocked() else null
     }
+    if (member) notifyChanged()
+    end?.let { raise(it) }
+  }
+
+  private fun endPeriodLocked(): PeriodEnd {
+    val end = PeriodEnd(loadedFaces.toList(), failedFaces.toList(), lastError, readyCallbacks.toList())
+    loadedFaces.clear()
+    failedFaces.clear()
+    lastError = null
+    readyCallbacks.clear()
+    return end
+  }
+
+  private fun raise(end: PeriodEnd) {
     notify {
       statusListeners.forEach { it(Status.Loaded) }
-      for (cb in callbacks) cb(this)
+      end.loaded.forEach { face -> loadingDoneListeners.forEach { it(face) } }
+      loadingDoneFacesListeners.forEach { it(end.loaded) }
+      if (end.failed.isNotEmpty()) {
+        end.failed.forEach { face -> loadingErrorListeners.forEach { it(face, end.error ?: "") } }
+        loadingErrorFacesListeners.forEach { it(end.failed, end.error) }
+      }
+      for (cb in end.ready) cb(this)
     }
   }
+
+  private fun notifyChanged() {
+    if (changedListeners.isNotEmpty()) notify { changedListeners.forEach { it() } }
+  }
+
+  private fun notify(block: () -> Unit) = (dispatch ?: FontExecutors.main).execute(block)
 
   fun forEach(block: (FontFace) -> Unit) {
     for (face in array) block(face)
   }
 
   companion object {
+    private val allSets = java.util.Collections.newSetFromMap(java.util.WeakHashMap<FontFaceSet, Boolean>())
+
+    private fun sets(): List<FontFaceSet> = synchronized(allSets) { allSets.toList() }
+
+    internal fun faceLoading(face: FontFace) = sets().forEach { it.onFaceLoading(face) }
+
+    internal fun faceSettled(face: FontFace, error: String?) = sets().forEach { it.onFaceSettled(face, error) }
+
     @JvmStatic
     val instance = FontFaceSet()
 
