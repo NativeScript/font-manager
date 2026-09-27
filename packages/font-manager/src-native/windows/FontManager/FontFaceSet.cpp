@@ -45,13 +45,11 @@ namespace winrt::NativeScript::FontManager::implementation
         if (!font) return;
         {
             std::lock_guard lock(m_mutex);
-            // A set: adding a face it already holds does nothing.
             if (ContainsLocked(font)) return;
             m_faces.push_back(font);
             m_byFamily[ToLower(std::wstring(font.Family()))].push_back(font);
         }
         RaiseChanged();
-        // A face added while it loads joins (or starts) the loading period.
         if (font.Status() == fm::FontFaceStatus::Loading) OnFaceLoading(font);
     }
 
@@ -70,7 +68,6 @@ namespace winrt::NativeScript::FontManager::implementation
                 vec.erase(std::remove(vec.begin(), vec.end(), font), vec.end());
                 if (vec.empty()) m_byFamily.erase(it);
             }
-            // A removed face no longer holds the set in its loading period.
             if (std::find(m_loadingFaces.begin(), m_loadingFaces.end(), font) != m_loadingFaces.end())
             {
                 m_loadingFaces.erase(std::remove(m_loadingFaces.begin(), m_loadingFaces.end(), font), m_loadingFaces.end());
@@ -152,8 +149,6 @@ namespace winrt::NativeScript::FontManager::implementation
         bool started = false;
         {
             std::lock_guard lock(m_mutex);
-            // The status is read again under the lock: a face that settles meanwhile sets it before
-            // calling OnFaceSettled, so it is either tracked here and settled there, or neither.
             if (!ContainsLocked(face) || face.Status() != fm::FontFaceStatus::Loading) return;
             if (std::find(m_loadingFaces.begin(), m_loadingFaces.end(), face) != m_loadingFaces.end()) return;
             started = m_loadingFaces.empty() && m_loadedFaces.empty() && m_failedFaces.empty();
@@ -234,7 +229,6 @@ namespace winrt::NativeScript::FontManager::implementation
             co_return single_threaded_vector<fm::FontFace>().GetView();
         }
 
-        // A member face reports its load to this set itself (OnFaceLoading / OnFaceSettled).
         hstring err = co_await face.LoadAsync();
 
         std::vector<fm::FontFace> result{ face };
