@@ -8,7 +8,11 @@ namespace NativeScript.FontManager
     runtimeclass FontFaceSetEventArgs
     {
         FontFaceSetStatus Status{ get; };
+        // The first of Faces, or the face that started a loading period.
         FontFace Face{ get; };
+        // FontFaceSetLoadEvent.fontfaces: for LoadingDone every face that loaded in the period, for
+        // LoadingError every one that failed; empty for Loading and StatusChanged.
+        Windows.Foundation.Collections.IVectorView<FontFace> Faces{ get; };
         String Error{ get; };
     }
 
@@ -34,9 +38,19 @@ namespace NativeScript.FontManager
         // Snapshot of the registered faces (the TS layer builds JS iterators over this).
         Windows.Foundation.Collections.IVectorView<FontFace> GetArray();
 
+        // As the Web FontFaceSet: a member face that starts loading (FontFace.LoadAsync, LoadAsync
+        // here, or added while loading) starts a loading period, raising StatusChanged (Loading)
+        // and Loading once; when its last load settles, StatusChanged (Loaded), LoadingDone with
+        // the faces that loaded and, if any failed, LoadingError.
         event Windows.Foundation.TypedEventHandler<FontFaceSet, FontFaceSetEventArgs> StatusChanged;
         event Windows.Foundation.TypedEventHandler<FontFaceSet, FontFaceSetEventArgs> Loading;
         event Windows.Foundation.TypedEventHandler<FontFaceSet, FontFaceSetEventArgs> LoadingDone;
         event Windows.Foundation.TypedEventHandler<FontFaceSet, FontFaceSetEventArgs> LoadingError;
+
+        // Not part of the Web API, and not exposed by the JS wrapper: raised when a face is added
+        // or removed, or a member face finishes loading, so native text renderers know to resolve
+        // fonts again (a browser re-renders on its own; the Web API has no event for adding a
+        // face that has already loaded). Raised on the thread that made the change.
+        event Windows.Foundation.TypedEventHandler<FontFaceSet, Object> Changed;
     }
 }

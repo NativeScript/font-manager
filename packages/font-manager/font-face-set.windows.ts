@@ -14,6 +14,11 @@ function viewToFaces(view: any): FontFace[] {
   return out;
 }
 
+// FontFaceSetLoadEvent.fontfaces: the faces the native event carries.
+function eventFaces(args: any): FontFace[] {
+  return args?.Faces ? viewToFaces(args.Faces) : [];
+}
+
 // Delegate type for all FontFaceSet notifications (TypedEventHandler<FontFaceSet,
 // FontFaceSetEventArgs>). A WinRT event is wired by assigning a delegate to the event-named
 // property; the runtime can't derive a generic delegate's parameterized GUID from a plain
@@ -50,19 +55,19 @@ export class FontFaceSet extends Observable {
     wire('Loading', (_sender, args) => {
       const owner = ref.get();
       if (!owner) return;
-      owner.notify({ eventName: 'loading', object: owner, fontfaces: [(FontFace as any).fromNative(args?.Face)] });
+      owner.notify({ eventName: 'loading', object: owner, fontfaces: eventFaces(args) });
     });
 
     wire('LoadingDone', (_sender, args) => {
       const owner = ref.get();
       if (!owner) return;
-      owner.notify({ eventName: 'loadingdone', object: owner, fontfaces: [(FontFace as any).fromNative(args?.Face)] });
+      owner.notify({ eventName: 'loadingdone', object: owner, fontfaces: eventFaces(args) });
     });
 
     wire('LoadingError', (_sender, args) => {
       const owner = ref.get();
       if (!owner) return;
-      owner.notify({ eventName: 'loadingerror', object: owner, fontfaces: [(FontFace as any).fromNative(args?.Face)], error: args?.Error });
+      owner.notify({ eventName: 'loadingerror', object: owner, fontfaces: eventFaces(args), error: args?.Error });
     });
   }
 

@@ -113,6 +113,9 @@ namespace winrt::NativeScript::FontManager::implementation
         }
         if (!pending) co_return hstring(L"");
 
+        auto* set = winrt::get_self<FontFaceSet>(fm::FontFaceSet::Instance());
+        if (owner) set->OnFaceLoading(*this);
+
         // A load is already running: settle with its result instead of loading again.
         if (!owner)
         {
@@ -132,6 +135,8 @@ namespace winrt::NativeScript::FontManager::implementation
             m_pendingLoad = nullptr;
         }
         SetEvent(pending->done.get());
+        // After the status is final, so the set can't track this load again once it has settled.
+        set->OnFaceSettled(*this, error);
         co_return error;
     }
 
