@@ -21,11 +21,37 @@ fn cache_dir() -> PathBuf {
     if let Some(dir) = CACHE_DIR.read().unwrap().clone() {
         return dir;
     }
-    let base = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("nativescript-fonts")
+    // XDG says relative values are ignored; they would land in the CWD
+    let absolute = |p: PathBuf| p.is_absolute().then_some(p);
+    std::env::var_os("XDG_CACHE_HOME")
+        .and_then(|p| absolute(PathBuf::from(p)))
+        .or_else(|| std::env::var_os("HOME").and_then(|h| absolute(PathBuf::from(h).join(".cache"))))
+        .map(|base| base.join("nativescript-fonts"))
+        .unwrap_or_else(|| std::env::temp_dir().join(format!("nativescript-fonts-{}", unsafe { libc::geteuid() })))
+}
+
+/// Creates `dir` 0700, or makes it so: a real directory of this user, that nobody else can plant
+/// or swap files in.
+fn private_dir(dir: &Path) -> Result<(), String> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let fail = |e: String| format!("Couldn't use cache directory {}: {e}", dir.display());
+    if let Some(parent) = dir.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| fail(e.to_string()))?;
+    }
+    match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return Err(fail(e.to_string())),
+        _ => {}
+    }
+    let meta = std::fs::symlink_metadata(dir).map_err(|e| fail(e.to_string()))?;
+    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } {
+        return Err(fail("not a directory of this user".into()));
+    }
+    // older versions created it with the umask's mode
+    if meta.mode() & 0o077 != 0 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| fail(e.to_string()))?;
+    }
+    Ok(())
 }
 
 pub enum Source {
@@ -130,10 +156,12 @@ pub fn classify(url: &str) -> Result<Source, String> {
         };
     }
     let path = Path::new(url);
-    Ok(Source::File(match app.as_ref() {
-        Some(dir) if path.is_relative() => dir.join(url.trim_start_matches("./")),
-        _ => path.to_path_buf(),
-    }))
+    match app.as_ref() {
+        Some(dir) if path.is_relative() => Ok(Source::File(dir.join(url.trim_start_matches("./")))),
+        // not against the CWD
+        None if path.is_relative() => Err(format!("{url}: relative path with no app directory set (fm_set_app_dir)")),
+        _ => Ok(Source::File(path.to_path_buf())),
+    }
 }
 
 fn extension(bytes: &[u8]) -> &'static str {
@@ -148,6 +176,7 @@ fn extension(bytes: &[u8]) -> &'static str {
 
 /// Writes font bytes to the cache, named by content so equal bytes share a file.
 pub fn persist(bytes: &[u8]) -> Result<PathBuf, String> {
+    use std::os::unix::fs::OpenOptionsExt;
     if bytes.is_empty() {
         return Err("Empty font data".into());
     }
@@ -155,15 +184,21 @@ pub fn persist(bytes: &[u8]) -> Result<PathBuf, String> {
     hasher.write(bytes);
     let name = format!("font_{:016x}_{:x}.{}", hasher.finish(), bytes.len(), extension(bytes));
     let dir = cache_dir();
+    private_dir(&dir)?;
     let target = dir.join(&name);
-    if target.exists() {
+    // the hash isn't collision resistant: reuse only a file with these exact bytes
+    if std::fs::read(&target).is_ok_and(|existing| existing == bytes) {
         return Ok(target);
     }
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't create {}: {e}", dir.display()))?;
     // temp file + rename, so a partial write never sits under the final name
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let temp = dir.join(format!("{name}.{}_{}.part", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)));
-    let written = std::fs::File::create(&temp).and_then(|mut f| f.write_all(bytes));
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)
+        .and_then(|mut f| f.write_all(bytes));
     if let Err(e) = written.and_then(|_| std::fs::rename(&temp, &target)) {
         let _ = std::fs::remove_file(&temp);
         if !target.exists() {
@@ -205,6 +240,9 @@ pub(crate) mod tests {
         assert!(matches!(classify("file:///tmp/a%20b.ttf"), Ok(Source::File(p)) if p == Path::new("/tmp/a b.ttf")));
         assert!(matches!(classify("/abs/a.ttf"), Ok(Source::File(p)) if p == Path::new("/abs/a.ttf")));
         assert!(classify("ftp://x/a.ttf").is_err());
+        if APP_DIR.read().unwrap().is_none() {
+            assert!(classify("fonts/a.ttf").is_err(), "relative to the CWD");
+        }
     }
 
     pub fn use_test_cache() {
@@ -221,5 +259,29 @@ pub(crate) mod tests {
         assert_eq!(a.extension().unwrap(), "otf");
         assert_ne!(persist(b"other").unwrap(), a);
         assert!(persist(b"").is_err());
+    }
+
+    #[test]
+    fn cache_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        use_test_cache();
+        let path = persist(b"OTTO-private").unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(mode(path.parent().unwrap()), 0o700);
+        // a file swapped in under the name isn't trusted
+        std::fs::write(&path, b"OTTO-planted").unwrap();
+        assert_eq!(persist(b"OTTO-private").unwrap(), path);
+        assert_eq!(std::fs::read(&path).unwrap(), b"OTTO-private");
+
+        let root = std::env::temp_dir().join(format!("fm-private-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::fs::set_permissions(root.join("real"), std::fs::Permissions::from_mode(0o777)).unwrap();
+        std::os::unix::fs::symlink(root.join("real"), root.join("link")).unwrap();
+        assert!(private_dir(&root.join("link")).is_err());
+        private_dir(&root.join("real")).unwrap();
+        assert_eq!(mode(&root.join("real")), 0o700);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
