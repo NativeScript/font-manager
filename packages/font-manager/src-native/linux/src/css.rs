@@ -359,12 +359,21 @@ pub fn pick_source(src: &str, base: Option<&str>) -> Option<String> {
         if function_arg(part, "format").is_some_and(|f| !split_top_level(f, b',').iter().any(|f| supported_format(unquote(f)))) {
             continue;
         }
-        return Some(match base {
+        let resolved = match base {
             Some(base) => resolve_url(url, base),
             None => url.to_string(),
-        });
+        };
+        // a remote stylesheet doesn't get to load local files
+        if base.is_some_and(crate::files::is_remote) && !crate::files::is_remote(&resolved) && !is_data(&resolved) {
+            continue;
+        }
+        return Some(resolved);
     }
     None
+}
+
+fn is_data(url: &str) -> bool {
+    url.get(..5).is_some_and(|s| s.eq_ignore_ascii_case("data:"))
 }
 
 /// A face source as given to `FontFace`: a `src` list, `url(...)`, or a bare URL / path.
@@ -529,6 +538,10 @@ mod tests {
         assert_eq!(source_url("  url( \"~/fonts/a.ttf\" ) ").unwrap(), "~/fonts/a.ttf");
         assert_eq!(source_url("'/tmp/a.ttf'").unwrap(), "/tmp/a.ttf");
         assert_eq!(source_url("local(Foo)"), None);
+        let remote = Some("https://h.test/css/x.css");
+        assert_eq!(pick_source("url(file:///etc/x.ttf), url(~/a.ttf), url(a.ttf)", remote).unwrap(), "https://h.test/css/a.ttf");
+        assert_eq!(pick_source("url(data:font/ttf;base64,AA)", remote).unwrap(), "data:font/ttf;base64,AA");
+        assert_eq!(pick_source("url(/abs.ttf)", Some("/app/x.css")).unwrap(), "/abs.ttf");
     }
 
     #[test]
