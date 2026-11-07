@@ -262,13 +262,13 @@ impl Descriptors {
     /// Lower is better: weight distance plus a style penalty (CSS font matching, simplified).
     pub fn score(&self, weight: i32, italic: bool, oblique: bool) -> i64 {
         let (lo, hi) = self.weight;
-        let weight_diff = if weight < lo { lo - weight } else if weight > hi { weight - hi } else { 0 };
+        let weight_diff = (lo as i64 - weight as i64).max(weight as i64 - hi as i64).max(0);
         let style = match (self.style, italic, oblique) {
             (Style::Normal, false, false) | (Style::Italic, true, _) | (Style::Oblique, _, true) => 0,
             (Style::Italic, false, true) | (Style::Oblique, true, false) => 500,
             _ => 1000,
         };
-        weight_diff as i64 + style
+        weight_diff + style
     }
 }
 

@@ -127,7 +127,7 @@ pub fn mapped_family(css_family: &str, weight: i32, italic: bool) -> Option<Stri
     list.iter()
         .min_by_key(|m| {
             let (lo, hi) = m.weight;
-            let diff = if weight < lo { lo - weight } else if weight > hi { weight - hi } else { 0 };
+            let diff = (lo as i64 - weight as i64).max(weight as i64 - hi as i64).max(0);
             diff + if m.italic == italic { 0 } else { 1000 }
         })
         .map(|m| m.actual.clone())

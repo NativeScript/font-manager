@@ -74,6 +74,10 @@ pub fn resolve(families: &str, weight: i32, italic: bool) -> &'static CStr {
     let resolved = intern(&resolve_uncached(families, weight, italic));
     let mut cache = CACHE.lock().unwrap();
     if let Some(cache) = cache.as_mut().filter(|c| c.stamp == stamp) {
+        // keyed by caller strings: bound it
+        if cache.entries.len() >= 4096 {
+            cache.entries.clear();
+        }
         cache.entries.entry(families.to_string()).or_default().push(((weight, italic), resolved));
     }
     resolved
