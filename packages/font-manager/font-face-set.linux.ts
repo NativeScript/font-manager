@@ -1,27 +1,58 @@
 import { Observable } from '@nativescript/core';
-import { FontFace } from '.';
-import { hasFamily } from './fontconfig.linux';
+import { FontFace, facesFromList } from './font-face.linux';
 
-const GENERIC = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'emoji', 'math', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded']);
+// fm_event_t, fm_set_status_t
+const EVENT_STATUS = 0;
+const EVENT_LOADING = 1;
+const EVENT_LOADING_DONE = 2;
+const EVENT_LOADING_ERROR = 3;
+const SET_LOADING = 0;
 
-/** The family list of a CSS `font` shorthand (whatever follows the size). */
-function familiesOf(font: string): string[] {
-  const rest = /(?:^|\s)[\d.]+(?:px|pt|em|rem|%|vh|vw)?(?:\s*\/\s*\S+)?\s+(.*)$/i.exec(font.trim())?.[1] ?? font;
-  return rest
-    .split(',')
-    .map((f) => f.trim().replace(/^(['"])(.*)\1$/, '$2'))
-    .filter(Boolean);
+const instances = new Set<WeakRef<FontFaceSet>>();
+
+let ready: Promise<void> = Promise.resolve();
+let resolveReady: (() => void) | undefined;
+
+/** The faces of a borrowed native list. */
+function eventFaces(list: interop.Pointer | null): FontFace[] {
+  const faces: FontFace[] = [];
+  const count = list ? fm_face_list_size(list) : 0;
+  for (let i = 0; i < count; i++) {
+    const face = FontFace.fromNative(fm_face_list_get(list, i) as interop.Pointer);
+    if (face) faces.push(face);
+  }
+  return faces;
 }
 
-export class FontFaceSet extends Observable {
-  private _faces = new Set<FontFace>();
-  private _pending = 0;
-  private _ready: Promise<void> = Promise.resolve();
-  private _resolveReady?: () => void;
+function onEvent(event: number, status: number, list: interop.Pointer | null, error: string | null) {
+  if (event === EVENT_STATUS) {
+    if (status === SET_LOADING) {
+      ready = new Promise((resolve) => (resolveReady = resolve));
+    } else {
+      resolveReady?.();
+      resolveReady = undefined;
+    }
+  }
+  const data =
+    event === EVENT_STATUS
+      ? { eventName: 'status', status: status === SET_LOADING ? 'loading' : 'loaded' }
+      : {
+          eventName: event === EVENT_LOADING ? 'loading' : event === EVENT_LOADING_DONE ? 'loadingdone' : 'loadingerror',
+          fontfaces: eventFaces(list),
+          ...(event === EVENT_LOADING_ERROR ? { error } : {}),
+        };
+  for (const ref of instances) {
+    const set = ref.deref();
+    if (set) set.notify({ ...data, object: set } as any);
+    else instances.delete(ref);
+  }
+}
+fm_face_set_add_event_listener(onEvent as any, null);
 
+export class FontFaceSet extends Observable {
   constructor() {
     super();
-    (global as any).__fontManagerSet = this;
+    instances.add(new WeakRef(this));
   }
 
   static get instance(): FontFaceSet {
@@ -33,98 +64,69 @@ export class FontFaceSet extends Observable {
   private static _instance: FontFaceSet;
 
   get ready(): Promise<void> {
-    return this._ready;
+    return ready;
   }
 
   get size(): number {
-    return this._faces.size;
+    return fm_face_set_size();
   }
 
   get status(): 'loading' | 'loaded' {
-    return this._pending > 0 ? 'loading' : 'loaded';
+    return fm_face_set_status() === SET_LOADING ? 'loading' : 'loaded';
   }
 
   add(font: FontFace) {
-    this._faces.add(font);
+    fm_face_set_add(font.native_);
     return this;
   }
 
+  has(font: FontFace): boolean {
+    return fm_face_set_has(font.native_);
+  }
+
   entries(): IterableIterator<[FontFace, FontFace]> {
-    return Array.from(this._faces, (f) => [f, f] as [FontFace, FontFace])[Symbol.iterator]();
+    return facesFromList(fm_face_set_faces() as interop.Pointer)
+      .map((f) => [f, f] as [FontFace, FontFace])
+      [Symbol.iterator]();
   }
 
   keys(): IterableIterator<FontFace> {
-    return this._faces.values();
+    return this.values();
   }
 
   values(): IterableIterator<FontFace> {
-    return this._faces.values();
+    return facesFromList(fm_face_set_faces() as interop.Pointer)[Symbol.iterator]();
   }
 
   [Symbol.iterator]() {
-    return this._faces.values();
+    return this.values();
   }
 
   forEach(callback: (value: FontFace, key: FontFace, parent: FontFaceSet) => void, thisArg?: any) {
-    for (const font of this._faces) callback.call(thisArg, font, font, this);
+    for (const font of this.values()) callback.call(thisArg, font, font, this);
   }
 
-  /** Whether every named family can be used without loading anything. */
-  check(font: string, _text?: string): boolean {
-    return familiesOf(font).every((family) => {
-      if (GENERIC.has(family.toLowerCase())) return true;
-      const faces = this._matching(family);
-      if (faces.length) return faces.every((f) => f.status === 'loaded');
-      return hasFamily(family);
-    });
+  /** Whether text in a CSS `font` renders without loading anything. */
+  check(font: string, text?: string): boolean {
+    return fm_face_set_check(font, text ?? '');
   }
 
   clear() {
-    this._faces.clear();
+    fm_face_set_clear();
   }
 
   delete(font: FontFace) {
-    return this._faces.delete(font);
+    return fm_face_set_delete(font.native_);
   }
 
-  /** Loads the set's faces for the families in a CSS `font` shorthand. */
-  async load(font: string, _text?: string): Promise<FontFace[]> {
-    const faces = familiesOf(font).flatMap((family) => this._matching(family));
-    await Promise.all(faces.map((f) => f.load()));
-    return faces;
-  }
-
-  private _matching(family: string): FontFace[] {
-    const key = family.toLowerCase();
-    return Array.from(this._faces).filter((f) => f.family.toLowerCase() === key);
-  }
-
-  _loading(face: FontFace) {
-    if (this._pending++ === 0) {
-      this._ready = new Promise((resolve) => (this._resolveReady = resolve));
-      this.notify({ eventName: 'status', object: this, status: 'loading' } as any);
-    }
-    this.notify({ eventName: 'loading', object: this, fontfaces: [face] } as any);
-  }
-
-  _loaded(face: FontFace) {
-    this.notify({ eventName: 'loadingdone', object: this, fontfaces: [face] } as any);
-    this._settle();
-  }
-
-  _failed(face: FontFace, error: unknown) {
-    this.notify({ eventName: 'loadingerror', object: this, fontfaces: [face], error } as any);
-    this._settle();
-  }
-
-  private _settle() {
-    if (--this._pending === 0) {
-      this._resolveReady?.();
-      this._resolveReady = undefined;
-      this.notify({ eventName: 'status', object: this, status: 'loaded' } as any);
-    }
+  /** Loads the best face of the set for each family of a CSS `font`. */
+  load(font: string, text?: string): Promise<FontFace[]> {
+    const list = fm_face_set_match(font, text ?? '') as interop.Pointer;
+    if (!list) return Promise.reject(new Error(`Failed to parse font ${font}`));
+    const faces = facesFromList(list);
+    return Promise.all(faces.map((face) => face.load())).then(() => faces);
   }
 }
 
-// The set exists from the start, so faces loaded on their own still report to it.
+// Exists from the start, so faces loaded on their own still report to it.
 void FontFaceSet.instance;

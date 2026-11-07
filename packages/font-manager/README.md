@@ -56,9 +56,11 @@ if (!FontFaceSet.instance.check('16px Roboto')) {
 | iOS | `src-native/ios` | CoreText / CoreGraphics |
 | Android | `src-native/android` | Android Typeface APIs |
 | Windows | `src-native/windows` | C++/WinRT + DirectWrite |
-| Linux | `*.linux.ts` (no native code) | fontconfig, through the NativeScript Linux runtime |
+| Linux | `src-native/linux` | Rust + fontconfig (`libfontmanager.so`, C API) |
 
 On Linux a loaded face is registered with fontconfig, the registry GTK and Pango resolve families from, and its CSS family name is mapped to the family inside the file. The app then raises `Application`'s `fontsChanged` event so views lay their text out again. Needs `@nativescript/linux` 0.1.0-alpha.3 or later.
+
+The Linux implementation is a native library, `platforms/linux/lib/<arch>/libfontmanager.so`, whose C API (`platforms/linux/include/font_manager.h`) other native code can link against too: the `FontFaceSet`, change and loading callbacks, and `fm_resolve_family` to turn a CSS `font-family` list into the family to give Pango. Build it with `tools/scripts/build-linux.sh`; `src-native/linux/bench/run.sh` runs a native benchmark.
 
 ## License
 
