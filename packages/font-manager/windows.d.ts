@@ -1,7 +1,3 @@
-// Ambient declarations for the projected C++/WinRT NativeScript.FontManager runtime component
-// (src-native/windows/FontManager) and the @nativescript/windows runtime's WinRT async bridge.
-// The runtime projects WinRT classes by their fully-qualified namespace with PascalCase members.
-
 declare namespace NativeScript.FontManager {
   enum FontDisplay {
     Auto = 0,
