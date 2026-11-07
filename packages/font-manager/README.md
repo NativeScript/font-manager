@@ -56,6 +56,9 @@ if (!FontFaceSet.instance.check('16px Roboto')) {
 | iOS | `src-native/ios` | CoreText / CoreGraphics |
 | Android | `src-native/android` | Android Typeface APIs |
 | Windows | `src-native/windows` | C++/WinRT + DirectWrite |
+| Linux | `*.linux.ts` (no native code) | fontconfig, through the NativeScript Linux runtime |
+
+On Linux a loaded face is registered with fontconfig, the registry GTK and Pango resolve families from, and its CSS family name is mapped to the family inside the file. The app then raises `Application`'s `fontsChanged` event so views lay their text out again. Needs `@nativescript/linux` 0.1.0-alpha.3 or later.
 
 ## License
 
