@@ -49,19 +49,25 @@
     JS calls e.g. NativeScript.FontManager.FontFace.FromFamily(...). Owned here in the plugin (which
     ships the DLL) so apps never hand-maintain the list in their App_Resources manifest. The
     injection is idempotent (skips classes already present).
+
+    Local mode only. In npm mode the NuGet package's NativeScript.FontManager.Runtime.targets owns
+    registration with its own NSFontManagerActivatableClass items and
+    NSRegisterFontManagerActivatableClasses target, so this ItemGroup is gated (otherwise its items
+    add to that list and every class is declared twice, which fails manifest validation) and the
+    target here has a distinct name (MSBuild keeps the last definition of a target name).
   -->
-  <ItemGroup>
+  <ItemGroup Condition="'$(_NSFontManagerHasLocal)'=='true'">
     <!-- Keep in sync with the activatable runtimeclasses exported by NativeScript.FontManager.dll. -->
     <NSFontManagerActivatableClass Include="NativeScript.FontManager.FontFace" />
     <NSFontManagerActivatableClass Include="NativeScript.FontManager.FontFaceSet" />
     <NSFontManagerActivatableClass Include="NativeScript.FontManager.FontDescriptors" />
   </ItemGroup>
 
-  <Target Name="NSRegisterFontManagerActivatableClasses"
+  <Target Name="NSRegisterFontManagerActivatableClassesLocal"
           AfterTargets="ApplyManifestOverrides;MergeAppResourcesManifest"
           BeforeTargets="Build"
           Condition="'$(_NSFontManagerHasLocal)'=='true' and Exists('$(MSBuildProjectDirectory)\Package.appxmanifest')">
     <Message Text="[@nativescript/font-manager] Registering NativeScript.FontManager activatable classes in Package.appxmanifest" Importance="normal" />
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$ErrorActionPreference='Stop'; $p='$(MSBuildProjectDirectory)\Package.appxmanifest'; if(-not (Test-Path $p)){exit 0}; $dll='NativeScript.FontManager.dll'; $ids='@(NSFontManagerActivatableClass)'.Split(';'); [xml]$d=Get-Content -LiteralPath $p; $ns='http://schemas.microsoft.com/appx/manifest/foundation/windows10'; $m=New-Object System.Xml.XmlNamespaceManager($d.NameTable); $m.AddNamespace('a',$ns); $pkg=$d.DocumentElement; $ext=$pkg.SelectSingleNode('a:Extensions',$m); if(-not $ext){$ext=$d.CreateElement('Extensions',$ns);[void]$pkg.AppendChild($ext)}; $srv=$ext.SelectSingleNode('a:Extension[@Category=''windows.activatableClass.inProcessServer'']/a:InProcessServer[a:Path=''' + $dll + ''']',$m); if(-not $srv){$e=$d.CreateElement('Extension',$ns);$e.SetAttribute('Category','windows.activatableClass.inProcessServer');$srv=$d.CreateElement('InProcessServer',$ns);$pa=$d.CreateElement('Path',$ns);$pa.InnerText=$dll;[void]$srv.AppendChild($pa);[void]$e.AppendChild($srv);[void]$ext.AppendChild($e)}; $have=@($srv.SelectNodes('a:ActivatableClass',$m)|ForEach-Object{$_.GetAttribute('ActivatableClassId')}); $chg=$false; foreach($id in $ids){if($id -and ($have -notcontains $id)){$c=$d.CreateElement('ActivatableClass',$ns);$c.SetAttribute('ActivatableClassId',$id);$c.SetAttribute('ThreadingModel','both');[void]$srv.AppendChild($c);$chg=$true}}; if($chg){$d.Save($p)}&quot;" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$ErrorActionPreference='Stop'; $p='$(MSBuildProjectDirectory)\Package.appxmanifest'; if(-not (Test-Path $p)){exit 0}; $dll='NativeScript.FontManager.dll'; $ids='@(NSFontManagerActivatableClass)'.Split(';'); [xml]$d=Get-Content -LiteralPath $p; $ns='http://schemas.microsoft.com/appx/manifest/foundation/windows10'; $m=New-Object System.Xml.XmlNamespaceManager($d.NameTable); $m.AddNamespace('a',$ns); $pkg=$d.DocumentElement; $ext=$pkg.SelectSingleNode('a:Extensions',$m); if(-not $ext){$ext=$d.CreateElement('Extensions',$ns);[void]$pkg.AppendChild($ext)}; $srv=$ext.SelectSingleNode('a:Extension[@Category=''windows.activatableClass.inProcessServer'']/a:InProcessServer[a:Path=''' + $dll + ''']',$m); if(-not $srv){$e=$d.CreateElement('Extension',$ns);$e.SetAttribute('Category','windows.activatableClass.inProcessServer');$srv=$d.CreateElement('InProcessServer',$ns);$pa=$d.CreateElement('Path',$ns);$pa.InnerText=$dll;[void]$srv.AppendChild($pa);[void]$e.AppendChild($srv);[void]$ext.AppendChild($e)}; $have=@($srv.SelectNodes('a:ActivatableClass',$m)|ForEach-Object{$_.GetAttribute('ActivatableClassId')}); $chg=$false; foreach($id in $ids){if($id -and ($have -notcontains $id)){$c=$d.CreateElement('ActivatableClass',$ns);$c.SetAttribute('ActivatableClassId',$id);$c.SetAttribute('ThreadingModel','both');[void]$srv.AppendChild($c);$have+=$id;$chg=$true}}; if($chg){$d.Save($p)}&quot;" />
   </Target>
 </Project>
