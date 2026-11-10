@@ -1,6 +1,6 @@
 {
   "name": "@nativescript/font-manager",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "A NativeScript plugin for managing fonts",
   "main": "index",
   "types": "index.d.ts",
@@ -9,7 +9,7 @@
       "ios": "6.0.0",
       "android": "6.0.0",
       "windows": "9.1.0",
-      "linux": "0.1.0-alpha.3"
+      "linux": "0.1.0-alpha.2"
     }
   },
   "repository": {
