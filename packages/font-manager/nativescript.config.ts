@@ -6,7 +6,7 @@ export default {
       {
         name: 'FontManager',
         libs: ['FontManager'],
-        version: '1.0.22',
+        version: '1.0.23',
         repositoryURL: 'https://github.com/NativeScript/font-manager.git',
       },
     ],
@@ -17,7 +17,7 @@ export default {
       {
         name: 'FontManager',
         libs: ['FontManager'],
-        version: '1.0.22',
+        version: '1.0.23',
         repositoryURL: 'https://github.com/NativeScript/font-manager.git',
       },
     ],
