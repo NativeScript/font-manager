@@ -13,7 +13,7 @@ SCHEME="FontManager"
 OUT_DIR="${1:-$REPO_ROOT/dist/spm}"
 WORK_DIR="$OUT_DIR/build"
 
-PLATFORMS=("iOS" "iOS Simulator" "visionOS" "visionOS Simulator" "tvOS" "tvOS Simulator")
+PLATFORMS=("iOS" "iOS Simulator" "visionOS" "visionOS Simulator" "tvOS" "tvOS Simulator" "macOS" "macOS,variant=Mac Catalyst")
 if [ "$#" -gt 1 ]; then
   shift
   PLATFORMS=("$@")
@@ -37,7 +37,7 @@ EOF
 
 XCFRAMEWORK_ARGS=()
 for PLATFORM in "${PLATFORMS[@]}"; do
-  SLUG="$(echo "$PLATFORM" | tr '[:upper:] ' '[:lower:]-')"
+  SLUG="$(echo "$PLATFORM" | tr '[:upper:]' '[:lower:]' | tr -c '[:alnum:]\n' '-')"
   ARCHIVE="$WORK_DIR/$SLUG.xcarchive"
 
   echo "▸ Archiving $SCHEME for $PLATFORM"

@@ -83,6 +83,9 @@ NS_ASSUME_NONNULL_BEGIN
  * Use `uiFontWithSize:` to get a scaled copy in a single call.
  */
 @property (nonatomic, readonly, nullable) UIFont *uiFont;
+#elif TARGET_OS_OSX
+- (nullable NSFont *)uiFontWithSize:(CGFloat)size;
+@property (nonatomic, readonly, nullable) NSFont *uiFont;
 #endif
 
 - (void)updateDescriptor:(NSString *)value;

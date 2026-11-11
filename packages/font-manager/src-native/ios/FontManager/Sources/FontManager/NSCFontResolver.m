@@ -2,6 +2,10 @@
 #include "NSCFontDescriptors.h"
 #if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 #import <UIKit/UIKit.h>
+#define NSCPlatformFont UIFont
+#else
+#import <AppKit/AppKit.h>
+#define NSCPlatformFont NSFont
 #endif
 
 static NSDictionary<NSString *, NSString *> *NSCGenericFontFamilies(void) {
@@ -99,10 +103,10 @@ static BOOL NSCIsRemoteSource(NSString *src) {
 
 - (CGFontRef)systemFontForFamily:(NSString *)family {
 
-    UIFont *font = [UIFont fontWithName:family size:16.0];
+    NSCPlatformFont *font = [NSCPlatformFont fontWithName:family size:16.0];
 
     if (!font) {
-        font = [UIFont systemFontOfSize:16.0];
+        font = [NSCPlatformFont systemFontOfSize:16.0];
     }
 
     return (CGFontRef)CFAutorelease(CTFontCopyGraphicsFont((__bridge CTFontRef)font, NULL));
