@@ -9,6 +9,21 @@
 @end
 #if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 #import <UIKit/UIKit.h>
+#else
+#import <AppKit/AppKit.h>
+#define UIFont NSFont
+#define UIFontDescriptor NSFontDescriptor
+#define UIFontWeight NSFontWeight
+#define UIFontDescriptorSymbolicTraits NSFontDescriptorSymbolicTraits
+#define UIFontDescriptorTraitItalic NSFontDescriptorTraitItalic
+#define UIFontDescriptorSystemDesign NSFontDescriptorSystemDesign
+#define UIFontDescriptorSystemDesignDefault NSFontDescriptorSystemDesignDefault
+#define UIFontDescriptorSystemDesignSerif NSFontDescriptorSystemDesignSerif
+#define UIFontDescriptorSystemDesignMonospaced NSFontDescriptorSystemDesignMonospaced
+#define UIFontDescriptorSystemDesignRounded NSFontDescriptorSystemDesignRounded
+#define UIFontDescriptorFamilyAttribute NSFontFamilyAttribute
+#define UIFontDescriptorTraitsAttribute NSFontTraitsAttribute
+#define UIFontWeightTrait NSFontWeightTrait
 #endif
 
 __attribute__((visibility("hidden")))
@@ -39,7 +54,6 @@ typedef struct {
 @property (nonatomic, copy, nullable) NSString *localOrRemoteSource;
 @end
 
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 static inline CGFloat NSCDefaultLabelFontSize(void) {
 #if TARGET_OS_TV
     // tvOS POC: UIFont.labelFontSize is unavailable on tvOS; 17pt matches the iOS default.
@@ -48,15 +62,12 @@ static inline CGFloat NSCDefaultLabelFontSize(void) {
     return UIFont.labelFontSize;
 #endif
 }
-#endif
 
 @implementation NSCFontFace {
     CGFontRef _font;
     NSData *_fontData;
     NSString *_fontPath;
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
     UIFont *_uiFont;
-#endif
     BOOL _loadInFlight;
     NSMutableArray<void (^)(NSString *)> *_pendingCallbacks;
     NSMutableArray<void (^)(NSString *)> *_pendingWaiters;
@@ -136,11 +147,9 @@ static inline CGFloat NSCDefaultLabelFontSize(void) {
     @synchronized (self) { return _fontPath; }
 }
 
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 - (UIFont *)uiFont {
     @synchronized (self) { return _uiFont; }
 }
-#endif
 
 #pragma mark - Descriptor properties with auto-reload
 
@@ -454,8 +463,6 @@ static inline CGFloat NSCDefaultLabelFontSize(void) {
     return nil;
 }
 
-#if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
-
 // Keeps existing traits, so bold stays bold.
 - (UIFont *)_applyItalic:(BOOL)italic toFont:(UIFont *)base size:(CGFloat)size {
     if (!italic) return base;
@@ -527,10 +534,13 @@ static inline CGFloat NSCDefaultLabelFontSize(void) {
 }
 
 - (nullable UIFont *)uiFontWithSize:(CGFloat)size {
+#if TARGET_OS_OSX && !TARGET_OS_MACCATALYST
+    UIFont *font = self.uiFont;
+    return font ? [UIFont fontWithDescriptor:font.fontDescriptor size:size] : nil;
+#else
     return [self.uiFont fontWithSize:size];
-}
-
 #endif
+}
 
 #pragma mark - Class methods
 

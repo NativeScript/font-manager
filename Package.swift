@@ -11,7 +11,9 @@ let package = Package(
     platforms: [
         .iOS(.v13),
         .visionOS(.v1),
-        .tvOS(.v13)
+        .tvOS(.v13),
+        .macOS(.v11),
+        .macCatalyst(.v13)
     ],
     products: [
         .library(

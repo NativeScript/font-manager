@@ -1,6 +1,8 @@
 #import <Foundation/Foundation.h>
 #if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 #import <UIKit/UIKit.h>
+#elif TARGET_OS_OSX
+#import <AppKit/AppKit.h>
 #endif
 
 NS_ASSUME_NONNULL_BEGIN
@@ -36,6 +38,8 @@ FOUNDATION_EXPORT NSCFontWeight NSCFontWeightFromValue(NSInteger value);
 
 #if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 FOUNDATION_EXPORT UIFontWeight NSCUIFontWeight(NSCFontWeight weight);
+#elif TARGET_OS_OSX
+FOUNDATION_EXPORT NSFontWeight NSCUIFontWeight(NSCFontWeight weight);
 #endif
 
 NS_ASSUME_NONNULL_END

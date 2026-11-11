@@ -8,7 +8,9 @@ let package = Package(
     platforms: [
         .iOS(.v13),
         .tvOS(.v13),
-        .visionOS(.v1)
+        .visionOS(.v1),
+        .macOS(.v11),
+        .macCatalyst(.v13)
     ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
@@ -24,7 +26,8 @@ let package = Package(
             name: "FontManager",
             publicHeadersPath: ".",
             linkerSettings: [
-                .linkedFramework("UIKit"),
+                .linkedFramework("UIKit", .when(platforms: [.iOS, .tvOS, .visionOS, .macCatalyst])),
+                .linkedFramework("AppKit", .when(platforms: [.macOS])),
                 .linkedFramework("CoreText"),
                 .linkedFramework("CoreGraphics"),
             ]

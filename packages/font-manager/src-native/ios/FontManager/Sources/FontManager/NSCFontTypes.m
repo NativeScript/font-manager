@@ -20,4 +20,18 @@ UIFontWeight NSCUIFontWeight(NSCFontWeight weight) {
         case NSCFontWeightBlack:      return UIFontWeightBlack;
     }
 }
+#elif TARGET_OS_OSX
+NSFontWeight NSCUIFontWeight(NSCFontWeight weight) {
+    switch (NSCFontWeightFromValue(weight)) {
+        case NSCFontWeightThin:       return NSFontWeightThin;
+        case NSCFontWeightExtraLight: return NSFontWeightUltraLight;
+        case NSCFontWeightLight:      return NSFontWeightLight;
+        case NSCFontWeightNormal:     return NSFontWeightRegular;
+        case NSCFontWeightMedium:     return NSFontWeightMedium;
+        case NSCFontWeightSemiBold:   return NSFontWeightSemibold;
+        case NSCFontWeightBold:       return NSFontWeightBold;
+        case NSCFontWeightExtraBold:  return NSFontWeightHeavy;
+        case NSCFontWeightBlack:      return NSFontWeightBlack;
+    }
+}
 #endif
