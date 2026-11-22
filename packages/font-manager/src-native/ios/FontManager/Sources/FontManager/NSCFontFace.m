@@ -6,6 +6,10 @@
 @interface NSCFontFaceSet (NSCFontFaceLoading)
 + (void)_faceDidStartLoading:(NSCFontFace *)face;
 + (void)_faceDidSettle:(NSCFontFace *)face error:(nullable NSString *)error;
+- (nullable NSCFontFace *)_loadedFaceForFamily:(NSString *)family
+                                        weight:(NSCFontWeight)weight
+                                        italic:(BOOL)italic
+                                     excluding:(nullable NSCFontFace *)excluded;
 @end
 #if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_MACCATALYST || TARGET_OS_VISION
 #import <UIKit/UIKit.h>
@@ -476,6 +480,18 @@ static inline CGFloat NSCDefaultLabelFontSize(void) {
 // pointed at the same family/traits/size (e.g. several "sans-serif" labels)
 // otherwise redoes this UIFontDescriptor/UIFont resolution independently.
 - (UIFont *)_uiFontFromFamily:(NSString *)family traits:(NSCFontTraits)traits size:(CGFloat)size {
+    // A face the app added (FontFace + FontFaceSet) wins over a local font of the same name, as an
+    // @font-face does in CSS. iOS has a hidden system Bebas Neue, for one, which the family lookup
+    // below picks over an app's own Bebas Neue.
+    NSCFontFace *added = [[NSCFontFaceSet instance] _loadedFaceForFamily:family
+                                                                  weight:traits.weight
+                                                                  italic:traits.italic
+                                                               excluding:self];
+    if (added.font) {
+        UIFont *own = [self _uiFontFromCGFont:added.font size:size];
+        if (own) return own;
+    }
+
     UIFontWeight w = NSCUIFontWeight(traits.weight);
 
     static NSCache<NSString *, UIFont *> *resolvedFontCache;

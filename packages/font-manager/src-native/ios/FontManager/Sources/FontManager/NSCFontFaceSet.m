@@ -10,6 +10,10 @@ FOUNDATION_EXTERN void NSCRunOnMain(dispatch_block_t block);
 @interface NSCFontFaceSet (NSCFontFaceLoading)
 + (void)_faceDidStartLoading:(NSCFontFace *)face;
 + (void)_faceDidSettle:(NSCFontFace *)face error:(nullable NSString *)error;
+- (nullable NSCFontFace *)_loadedFaceForFamily:(NSString *)family
+                                        weight:(NSCFontWeight)weight
+                                        italic:(BOOL)italic
+                                     excluding:(nullable NSCFontFace *)excluded;
 @end
 
 @interface NSCFontFaceSet ()
@@ -315,6 +319,26 @@ static NSHashTable<NSCFontFaceSet *> *NSCAllFontFaceSets(void) {
         if (best) return @[best];
     }
     return @[];
+}
+
+/// The loaded face added for `family` closest to `weight` and `italic`, or nil (skipping
+/// `excluded`, the face asking). An added face wins over a local font of the same name, as an
+/// @font-face does in CSS.
+- (nullable NSCFontFace *)_loadedFaceForFamily:(NSString *)family
+                                        weight:(NSCFontWeight)weight
+                                        italic:(BOOL)italic
+                                     excluding:(nullable NSCFontFace *)excluded {
+    NSArray<NSCFontFace *> *candidates;
+    @synchronized (self) { candidates = [_fontsByFamily[family.lowercaseString] copy]; }
+    NSCFontFace *best = nil;
+    NSInteger bestScore = NSIntegerMax;
+    for (NSCFontFace *face in candidates) {
+        if (face == excluded || face.status != NSCFontFaceStatusLoaded || face.font == NULL) continue;
+        BOOL faceItalic = face.fontDescriptors.style.type != NSCFontStyleTypeNormal;
+        NSInteger score = labs((NSInteger)face.fontDescriptors.weight - (NSInteger)weight) + (faceItalic == italic ? 0 : 1000);
+        if (score < bestScore) { bestScore = score; best = face; }
+    }
+    return best;
 }
 
 - (BOOL)check:(NSString *)font text:(NSString *)text {
