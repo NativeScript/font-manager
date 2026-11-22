@@ -188,6 +188,27 @@ static NSString *FontFile(NSString *name) {
     XCTAssertEqualObjects(loaded, @[bold]);
 }
 
+- (void)testAnAddedFaceWinsOverASystemFontOfTheSameName {
+    // Before: the family lookup finds iOS's own Helvetica.
+    NSCFontFace *before = [[NSCFontFace alloc] initWithFamily:@"Helvetica"];
+    [before loadSync:nil];
+    XCTAssertTrue([before.uiFont.familyName containsString:@"Helvetica"]);
+
+    // An app's face named after a system family, as @font-face can be (STIX bytes, "Helvetica" name).
+    NSCFontFace *added = [[NSCFontFace alloc] initWithFamily:@"Helvetica" source:FontFile(@"added-helvetica.ttf")];
+    NSString *error = nil;
+    [added loadSync:&error];
+    XCTAssertNil(error);
+    [[NSCFontFaceSet instance] add:added];
+
+    NSCFontFace *plain = [[NSCFontFace alloc] initWithFamily:@"Helvetica"];
+    [plain loadSync:nil];
+    XCTAssertEqualObjects(plain.uiFont.fontName, added.uiFont.fontName);
+    XCTAssertFalse([plain.uiFont.familyName containsString:@"Helvetica"]);
+
+    [[NSCFontFaceSet instance] delete:added];
+}
+
 - (void)testCheckIsTrueOnlyWhenUsingTheFontWouldNotStartALoad {
     NSCFontFaceSet *set = [[NSCFontFaceSet alloc] init];
     [set add:[[NSCFontFace alloc] initWithFamily:@"Pending" source:FontFile(@"check-pending.ttf")]];
